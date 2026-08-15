@@ -4,22 +4,26 @@ const state = {
   screen: 'dashboard',
   txType: 'expense',
   txCategory: null,
+  txPayment: 'Dinheiro',
   invMovement: 'aporte',
+  simCategory: null,
+  simPayment: 'Dinheiro',
 };
 
 const APPBAR_TITLES = {
   dashboard: 'Dashboard',
+  bills: 'Contas a pagar',
   budgets: 'Orçamento',
   investments: 'Investimentos',
-  profile: 'Perfil',
+  more: 'Mais',
 };
 
 function todayISO() {
-  return new Date().toISOString().slice(0, 10);
+  return Calc.toLocalISODate(new Date());
 }
 
 function catIcon(name) {
-  const c = Storage.getCategories().find((c) => c.name === name);
+  const c = [...Storage.getCategories(), ...Storage.getIncomeCategories()].find((c) => c.name === name);
   return c ? c.icon : '🏷️';
 }
 
@@ -32,6 +36,7 @@ function showScreen(name) {
     el.classList.toggle('active', el.dataset.screen === name);
   });
   document.getElementById('appbar-title').textContent = APPBAR_TITLES[name];
+  document.getElementById('fab-add').style.display = name === 'more' ? 'none' : 'flex';
   renderAll();
 }
 
@@ -56,20 +61,31 @@ document.querySelectorAll('.modal-overlay').forEach((overlay) => {
 });
 
 document.getElementById('fab-add').addEventListener('click', () => {
-  if (state.screen === 'investments') {
-    openInvModal();
-  } else {
-    openTxModal();
-  }
+  if (state.screen === 'investments') openInvModal();
+  else if (state.screen === 'bills') openBillModal();
+  else openTxModal();
 });
 
-// -------- Modal: Transação --------
-function openTxModal() {
-  document.getElementById('tx-amount').value = '';
+// ==================== TRANSAÇÃO (gasto/receita) ====================
+
+function renderAccountOptions(selectEl, selectedId) {
+  const accounts = Storage.getAccounts();
+  selectEl.innerHTML =
+    `<option value="">— nenhuma —</option>` +
+    accounts.map((a) => `<option value="${a.id}" ${a.id === selectedId ? 'selected' : ''}>${a.type === 'carteira' ? '👛' : '🏦'} ${a.name} (${Calc.fmtBRL(a.balance)})</option>`).join('');
+}
+
+function openTxModal(prefill) {
+  document.getElementById('tx-amount').value = prefill ? prefill.amount : '';
   document.getElementById('tx-desc').value = '';
   document.getElementById('tx-date').value = todayISO();
+  document.getElementById('tx-card-name').value = '';
+  document.getElementById('tx-installments').value = prefill ? prefill.installments || 1 : 1;
   setTxType('expense');
+  if (prefill && prefill.category) state.txCategory = prefill.category;
   renderTxCategories();
+  setTxPayment(prefill ? prefill.payment || 'Dinheiro' : 'Dinheiro');
+  renderAccountOptions(document.getElementById('tx-account'));
   openModal('modal-tx');
 }
 
@@ -78,6 +94,10 @@ function setTxType(type) {
   document.querySelectorAll('#modal-tx .type-btn').forEach((b) => {
     b.classList.toggle('selected', b.dataset.type === type);
   });
+  document.getElementById('tx-payment-wrap').style.display = type === 'expense' ? 'block' : 'none';
+  state.txCategory = null;
+  renderTxCategories();
+  updateTxAccountVisibility();
 }
 document.querySelectorAll('#modal-tx .type-btn').forEach((btn) => {
   btn.addEventListener('click', () => setTxType(btn.dataset.type));
@@ -85,7 +105,7 @@ document.querySelectorAll('#modal-tx .type-btn').forEach((btn) => {
 
 function renderTxCategories() {
   const wrap = document.getElementById('tx-categories');
-  const categories = Storage.getCategories();
+  const categories = state.txType === 'income' ? Storage.getIncomeCategories() : Storage.getCategories();
   if (!state.txCategory) state.txCategory = categories[0].name;
   wrap.innerHTML = categories
     .map(
@@ -100,6 +120,24 @@ function renderTxCategories() {
   });
 }
 
+function setTxPayment(method) {
+  state.txPayment = method;
+  const wrap = document.getElementById('tx-payment-methods');
+  wrap.innerHTML = PAYMENT_METHODS.map(
+    (m) => `<div class="chip ${m === method ? 'selected' : ''}" data-pm="${m}">${m}</div>`
+  ).join('');
+  wrap.querySelectorAll('.chip').forEach((chip) => {
+    chip.addEventListener('click', () => setTxPayment(chip.dataset.pm));
+  });
+  document.getElementById('tx-card-fields').style.display = method === 'Cartão de Crédito' ? 'block' : 'none';
+  updateTxAccountVisibility();
+}
+
+function updateTxAccountVisibility() {
+  const showAccount = state.txType === 'income' || state.txPayment !== 'Cartão de Crédito';
+  document.getElementById('tx-account-wrap').style.display = showAccount ? 'block' : 'none';
+}
+
 document.getElementById('btn-save-tx').addEventListener('click', () => {
   const amount = parseFloat(document.getElementById('tx-amount').value);
   if (!amount || amount <= 0) {
@@ -108,24 +146,59 @@ document.getElementById('btn-save-tx').addEventListener('click', () => {
   }
   const date = document.getElementById('tx-date').value || todayISO();
   const description = document.getElementById('tx-desc').value.trim();
-  Storage.addTransaction({
-    type: state.txType,
-    amount,
-    category: state.txType === 'income' ? 'Receita' : state.txCategory,
-    date,
-    description,
-  });
+  const category = state.txCategory;
+  const accountId = document.getElementById('tx-account').value || null;
+  const isCard = state.txType === 'expense' && state.txPayment === 'Cartão de Crédito';
+  const installments = isCard ? Math.max(1, parseInt(document.getElementById('tx-installments').value) || 1) : 1;
+  const cardName = isCard ? document.getElementById('tx-card-name').value.trim() : null;
+
+  if (isCard && installments > 1) {
+    const parts = Calc.splitInstallments(amount, installments);
+    parts.forEach((partAmount, idx) => {
+      Storage.addTransaction({
+        type: 'expense',
+        amount: partAmount,
+        category,
+        date: Calc.addMonthsToDate(date, idx),
+        description,
+        paymentMethod: state.txPayment,
+        cardName,
+        installmentLabel: `${idx + 1}/${installments}`,
+      });
+    });
+  } else {
+    Storage.addTransaction({
+      type: state.txType,
+      amount,
+      category,
+      date,
+      description,
+      paymentMethod: state.txType === 'expense' ? state.txPayment : null,
+      cardName: isCard ? cardName : null,
+      installmentLabel: isCard ? '1/1' : null,
+      accountId,
+    });
+    if (accountId) {
+      Storage.adjustAccountBalance(accountId, state.txType === 'income' ? amount : -amount);
+    }
+  }
+
   closeModal('modal-tx');
   renderAll();
 });
 
-// -------- Modal: Investimento --------
+// ==================== INVESTIMENTOS ====================
+
 function openInvModal() {
   document.getElementById('inv-amount').value = '';
   document.getElementById('inv-name').value = '';
   document.getElementById('inv-date').value = todayISO();
+  document.getElementById('inv-rate').value = '';
+  document.getElementById('inv-maturity').value = '';
   const sel = document.getElementById('inv-class');
   sel.innerHTML = ASSET_CLASSES.map((c) => `<option value="${c}">${c}</option>`).join('');
+  const liqSel = document.getElementById('inv-liquidity');
+  liqSel.innerHTML = LIQUIDITY_OPTIONS.map((l) => `<option value="${l}">${l}</option>`).join('');
   setInvMovement('aporte');
   openModal('modal-inv');
 }
@@ -152,9 +225,217 @@ document.getElementById('btn-save-inv').addEventListener('click', () => {
     name: document.getElementById('inv-name').value.trim(),
     date: document.getElementById('inv-date').value || todayISO(),
     movement: state.invMovement,
+    liquidity: document.getElementById('inv-liquidity').value,
+    rate: document.getElementById('inv-rate').value.trim(),
+    maturity: document.getElementById('inv-maturity').value || null,
   });
   closeModal('modal-inv');
   renderAll();
+});
+
+// ==================== CONTAS A PAGAR ====================
+
+function openBillModal() {
+  document.getElementById('bill-name').value = '';
+  document.getElementById('bill-amount').value = '';
+  document.getElementById('bill-day').value = '';
+  state.billCategory = Storage.getCategories()[0].name;
+  renderBillCategories();
+  openModal('modal-bill');
+}
+
+function renderBillCategories() {
+  const wrap = document.getElementById('bill-categories');
+  const categories = Storage.getCategories();
+  if (!state.billCategory) state.billCategory = categories[0].name;
+  wrap.innerHTML = categories
+    .map((c) => `<div class="chip ${c.name === state.billCategory ? 'selected' : ''}" data-cat="${c.name}">${c.icon} ${c.name}</div>`)
+    .join('');
+  wrap.querySelectorAll('.chip').forEach((chip) => {
+    chip.addEventListener('click', () => {
+      state.billCategory = chip.dataset.cat;
+      renderBillCategories();
+    });
+  });
+}
+
+document.getElementById('btn-save-bill').addEventListener('click', () => {
+  const name = document.getElementById('bill-name').value.trim();
+  const amount = parseFloat(document.getElementById('bill-amount').value);
+  const dueDay = parseInt(document.getElementById('bill-day').value);
+  if (!name || !amount || amount <= 0 || !dueDay || dueDay < 1 || dueDay > 31) {
+    alert('Preencha nome, valor e um dia de vencimento válido (1-31).');
+    return;
+  }
+  Storage.addBill({ name, amount, dueDay, category: state.billCategory });
+  closeModal('modal-bill');
+  renderAll();
+});
+
+function renderBills() {
+  const month = Calc.currentMonthKey();
+  const bills = Storage.getBills();
+
+  const alerts = Calc.billAlerts(bills, month);
+  document.getElementById('bills-alerts').innerHTML = alerts.length
+    ? alerts.map((a) => `<div class="alert ${a.severity}">${a.message}</div>`).join('')
+    : `<div class="alert info">Nenhuma conta vencendo nos próximos dias. 👍</div>`;
+
+  const listEl = document.getElementById('bills-list');
+  if (bills.length === 0) {
+    listEl.innerHTML = `<div class="empty-state">Nenhuma conta cadastrada. Toque em "+" para adicionar (aluguel, internet, cartão...).</div>`;
+    return;
+  }
+  const sorted = [...bills].sort((a, b) => a.dueDay - b.dueDay);
+  listEl.innerHTML = sorted
+    .map((b) => {
+      const paid = b.paidMonths.includes(month);
+      const due = Calc.billDueDateForMonth(b, month);
+      return `
+      <div class="tx-item">
+        <div class="tx-left">
+          <div class="tx-icon">${catIcon(b.category)}</div>
+          <div>
+            <div class="tx-desc">${b.name}</div>
+            <div class="tx-date">Vence dia ${b.dueDay} (${due.toLocaleDateString('pt-BR')}) ${paid ? '· ✅ paga este mês' : ''}</div>
+          </div>
+        </div>
+        <div style="text-align:right;">
+          <div class="tx-amount expense">${Calc.fmtBRL(b.amount)}</div>
+          ${paid ? '' : `<button class="chip" style="margin-top:4px;" data-pay-bill="${b.id}">Marcar como paga</button>`}
+        </div>
+      </div>`;
+    })
+    .join('');
+
+  listEl.querySelectorAll('[data-pay-bill]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const bill = bills.find((b) => b.id === btn.dataset.payBill);
+      Storage.markBillPaid(bill.id, month);
+      Storage.addTransaction({
+        type: 'expense',
+        amount: bill.amount,
+        category: bill.category,
+        date: todayISO(),
+        description: `Conta: ${bill.name}`,
+        paymentMethod: null,
+      });
+      renderAll();
+    });
+  });
+}
+
+// ==================== CONTAS/SALDOS ====================
+
+function openAccountModal() {
+  document.getElementById('account-name').value = '';
+  document.getElementById('account-type').value = 'banco';
+  document.getElementById('account-balance').value = '';
+  openModal('modal-account');
+}
+document.getElementById('btn-add-account').addEventListener('click', openAccountModal);
+
+document.getElementById('btn-save-account').addEventListener('click', () => {
+  const name = document.getElementById('account-name').value.trim();
+  const type = document.getElementById('account-type').value;
+  const balance = parseFloat(document.getElementById('account-balance').value) || 0;
+  if (!name) {
+    alert('Dê um nome para a conta/carteira.');
+    return;
+  }
+  Storage.addAccount({ name, type, balance });
+  closeModal('modal-account');
+  renderAll();
+});
+
+function renderAccounts() {
+  const accounts = Storage.getAccounts();
+  const total = accounts.reduce((s, a) => s + Number(a.balance), 0);
+  document.getElementById('accounts-total').textContent = Calc.fmtBRL(total);
+
+  const listEl = document.getElementById('accounts-list');
+  listEl.innerHTML = accounts.length
+    ? accounts
+        .map(
+          (a) => `
+      <div class="tx-item">
+        <div class="tx-left">
+          <div class="tx-icon">${a.type === 'carteira' ? '👛' : '🏦'}</div>
+          <div class="tx-desc">${a.name}</div>
+        </div>
+        <div class="tx-amount income">${Calc.fmtBRL(a.balance)}</div>
+      </div>`
+        )
+        .join('')
+    : `<div class="empty-state">Nenhuma conta cadastrada. Adicione seus bancos e o dinheiro que você tem em casa.</div>`;
+}
+
+// ==================== POSSO GASTAR ISSO? (simulador) ====================
+
+document.getElementById('btn-open-simulate').addEventListener('click', openSimulateModal);
+
+function openSimulateModal() {
+  document.getElementById('sim-amount').value = '';
+  document.getElementById('sim-installments').value = 1;
+  document.getElementById('sim-result').innerHTML = '';
+  document.getElementById('btn-simulate-to-tx').style.display = 'none';
+  state.simCategory = Storage.getCategories()[0].name;
+  renderSimCategories();
+  setSimPayment('Dinheiro');
+  openModal('modal-simulate');
+}
+
+function renderSimCategories() {
+  const wrap = document.getElementById('sim-categories');
+  const categories = Storage.getCategories();
+  wrap.innerHTML = categories
+    .map((c) => `<div class="chip ${c.name === state.simCategory ? 'selected' : ''}" data-cat="${c.name}">${c.icon} ${c.name}</div>`)
+    .join('');
+  wrap.querySelectorAll('.chip').forEach((chip) => {
+    chip.addEventListener('click', () => {
+      state.simCategory = chip.dataset.cat;
+      renderSimCategories();
+    });
+  });
+}
+
+function setSimPayment(method) {
+  state.simPayment = method;
+  const wrap = document.getElementById('sim-payment-methods');
+  wrap.innerHTML = PAYMENT_METHODS.map((m) => `<div class="chip ${m === method ? 'selected' : ''}" data-pm="${m}">${m}</div>`).join('');
+  wrap.querySelectorAll('.chip').forEach((chip) => {
+    chip.addEventListener('click', () => setSimPayment(chip.dataset.pm));
+  });
+  document.getElementById('sim-installments-wrap').style.display = method === 'Cartão de Crédito' ? 'block' : 'none';
+}
+
+document.getElementById('btn-calc-simulate').addEventListener('click', () => {
+  const amount = parseFloat(document.getElementById('sim-amount').value);
+  if (!amount || amount <= 0) {
+    alert('Informe um valor válido.');
+    return;
+  }
+  const installments =
+    state.simPayment === 'Cartão de Crédito' ? Math.max(1, parseInt(document.getElementById('sim-installments').value) || 1) : 1;
+
+  const month = Calc.currentMonthKey();
+  const transactions = Storage.getTransactions();
+  const budgets = Storage.getBudgetsForMonth(month);
+  const budgetStatuses = Calc.budgetStatus(budgets, transactions, month);
+  const budgetStatus = budgetStatuses.find((b) => b.category === state.simCategory);
+
+  const result = Calc.canSpend({ amount, installments, budgetStatus });
+  const severity = result.canSpend === false ? 'critical' : result.canSpend === true ? 'info' : 'warning';
+  document.getElementById('sim-result').innerHTML = `<div class="alert ${severity}">${result.message}</div>`;
+
+  state.lastSim = { amount, installments, category: state.simCategory, payment: state.simPayment };
+  document.getElementById('btn-simulate-to-tx').style.display = 'block';
+});
+
+document.getElementById('btn-simulate-to-tx').addEventListener('click', () => {
+  const sim = state.lastSim;
+  closeModal('modal-simulate');
+  if (sim) openTxModal(sim);
 });
 
 // -------- Render: Dashboard --------
@@ -162,7 +443,6 @@ function renderDashboard() {
   const month = Calc.currentMonthKey();
   const transactions = Storage.getTransactions();
   const budgets = Storage.getBudgetsForMonth(month);
-  const profile = Storage.getProfile();
 
   const totalSpent = Calc.totalByType(transactions, month, 'expense');
   document.getElementById('dash-total-spent').textContent = Calc.fmtBRL(totalSpent);
@@ -176,9 +456,21 @@ function renderDashboard() {
     cmpEl.textContent = `${arrow} ${Math.abs(cmp.pct).toFixed(0)}% vs. mês passado (${Calc.fmtBRL(cmp.passado)})`;
   }
 
-  // Alertas
+  // Receitas do mês (salário + outras fontes)
+  const totalIncome = Calc.totalByType(transactions, month, 'income');
+  document.getElementById('dash-total-income').textContent = Calc.fmtBRL(totalIncome);
+  const incomeByCategory = Calc.totalsByCategory(transactions, month, 'income');
+  const incomeEntries = Object.entries(incomeByCategory);
+  document.getElementById('dash-income-breakdown').innerHTML = incomeEntries.length
+    ? incomeEntries
+        .sort((a, b) => b[1] - a[1])
+        .map(([cat, val]) => `<div class="cat-row"><div class="cat-name">${catIcon(cat)} ${cat}</div><div class="cat-values">${Calc.fmtBRL(val)}</div></div>`)
+        .join('')
+    : `<div class="empty-state">Nenhuma receita lançada este mês.</div>`;
+
+  // Alertas: orçamento estourando + contas a vencer
   const budgetStatuses = Calc.budgetStatus(budgets, transactions, month);
-  const alerts = [...Calc.budgetAlerts(budgetStatuses)];
+  const alerts = [...Calc.billAlerts(Storage.getBills(), month), ...Calc.budgetAlerts(budgetStatuses)];
   const projection = Calc.projectionEndOfMonth(transactions, month);
   if (projection > totalSpent * 1.001 && budgets.length > 0) {
     const totalBudget = budgets.reduce((s, b) => s + b.limitAmount, 0);
@@ -220,19 +512,25 @@ function renderDashboard() {
     .slice(0, 8);
   txEl.innerHTML = recent.length
     ? recent
-        .map(
-          (t) => `
+        .map((t) => {
+          const paymentTag =
+            t.paymentMethod === 'Cartão de Crédito'
+              ? ` · 💳 ${t.cardName || 'Cartão'}${t.installmentLabel ? ' ' + t.installmentLabel : ''}`
+              : t.paymentMethod
+              ? ` · ${t.paymentMethod}`
+              : '';
+          return `
       <div class="tx-item">
         <div class="tx-left">
           <div class="tx-icon">${t.type === 'income' ? '💰' : catIcon(t.category)}</div>
           <div>
             <div class="tx-desc">${t.description || t.category}</div>
-            <div class="tx-date">${new Date(t.date).toLocaleDateString('pt-BR')}</div>
+            <div class="tx-date">${Calc.parseLocalDate(t.date).toLocaleDateString('pt-BR')}${paymentTag}</div>
           </div>
         </div>
         <div class="tx-amount ${t.type}">${t.type === 'income' ? '+' : '-'} ${Calc.fmtBRL(t.amount)}</div>
-      </div>`
-        )
+      </div>`;
+        })
         .join('')
     : `<div class="empty-state">Nenhuma transação este mês. Toque em "+" para começar.</div>`;
 }
@@ -263,14 +561,14 @@ function renderBudgets() {
 
   const profile = Storage.getProfile();
   const sugEl = document.getElementById('budget-suggestion');
-  if (profile.income > 0) {
-    const s = Calc.suggestion503020(profile.income);
+  if (profile.incomeNet > 0) {
+    const s = Calc.suggestion503020(profile.incomeNet);
     sugEl.innerHTML = `
       Necessidades (50%): <strong>${Calc.fmtBRL(s.necessidades)}</strong><br>
       Desejos/Lazer (30%): <strong>${Calc.fmtBRL(s.desejos)}</strong><br>
       Poupança/Investimento (20%): <strong>${Calc.fmtBRL(s.poupancaInvestimento)}</strong>`;
   } else {
-    sugEl.textContent = 'Cadastre sua renda em Perfil para ver a sugestão.';
+    sugEl.textContent = 'Cadastre sua renda em Mais > Perfil para ver a sugestão.';
   }
 }
 
@@ -308,27 +606,31 @@ function renderInvestments() {
   listEl.innerHTML = sorted.length
     ? sorted
         .slice(0, 10)
-        .map(
-          (i) => `
+        .map((i) => {
+          const details = [i.liquidity, i.rate, i.maturity ? `venc. ${Calc.parseLocalDate(i.maturity).toLocaleDateString('pt-BR')}` : null]
+            .filter(Boolean)
+            .join(' · ');
+          return `
       <div class="tx-item">
         <div class="tx-left">
           <div class="tx-icon">📈</div>
           <div>
             <div class="tx-desc">${i.name || i.assetClass}</div>
-            <div class="tx-date">${i.assetClass} · ${new Date(i.date).toLocaleDateString('pt-BR')}</div>
+            <div class="tx-date">${i.assetClass}${details ? ' · ' + details : ''} · ${Calc.parseLocalDate(i.date).toLocaleDateString('pt-BR')}</div>
           </div>
         </div>
         <div class="tx-amount ${i.movement === 'resgate' ? 'expense' : 'income'}">${i.movement === 'resgate' ? '-' : '+'} ${Calc.fmtBRL(i.amount)}</div>
-      </div>`
-        )
+      </div>`;
+        })
         .join('')
     : `<div class="empty-state">Toque em "+" para registrar seu primeiro aporte.</div>`;
 }
 
-// -------- Render: Perfil --------
+// -------- Render: Mais (Saldos + Perfil) --------
 function loadProfileForm() {
   const p = Storage.getProfile();
-  document.getElementById('profile-income').value = p.income || '';
+  document.getElementById('profile-income-gross').value = p.incomeGross || '';
+  document.getElementById('profile-income-net').value = p.incomeNet || '';
   document.getElementById('profile-dependents').value = p.dependents || 0;
   document.getElementById('profile-risk').value = p.riskProfile || 'Moderado';
   document.getElementById('profile-emergency').value = p.emergencyFundBalance || '';
@@ -337,7 +639,8 @@ function loadProfileForm() {
 
 document.getElementById('btn-save-profile').addEventListener('click', () => {
   const profile = {
-    income: parseFloat(document.getElementById('profile-income').value) || 0,
+    incomeGross: parseFloat(document.getElementById('profile-income-gross').value) || 0,
+    incomeNet: parseFloat(document.getElementById('profile-income-net').value) || 0,
     dependents: parseInt(document.getElementById('profile-dependents').value) || 0,
     riskProfile: document.getElementById('profile-risk').value,
     emergencyFundBalance: parseFloat(document.getElementById('profile-emergency').value) || 0,
@@ -352,7 +655,7 @@ function renderProfileRecommendation() {
   const profile = Storage.getProfile();
   const transactions = Storage.getTransactions();
   const month = Calc.currentMonthKey();
-  const monthlyExpenses = Calc.totalByType(transactions, month, 'expense') || profile.income * 0.7;
+  const monthlyExpenses = Calc.totalByType(transactions, month, 'expense') || profile.incomeNet * 0.7;
   const target = Calc.emergencyFundTarget(monthlyExpenses, profile.dependents);
   const rec = Calc.progressRecommendation({
     emergencyBalance: profile.emergencyFundBalance,
@@ -368,9 +671,11 @@ function renderProfileRecommendation() {
 // -------- Render geral --------
 function renderAll() {
   renderDashboard();
+  if (state.screen === 'bills') renderBills();
   if (state.screen === 'budgets') renderBudgets();
   if (state.screen === 'investments') renderInvestments();
-  if (state.screen === 'profile') {
+  if (state.screen === 'more') {
+    renderAccounts();
     loadProfileForm();
     renderProfileRecommendation();
   }

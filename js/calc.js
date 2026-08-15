@@ -1,7 +1,25 @@
 // Métricas (estilo BI) + regras de orientação financeira (estilo CFP), tudo calculado no cliente.
 
+// Datas guardadas como 'YYYY-MM-DD' devem ser lidas no fuso local, nunca em UTC
+// (new Date('YYYY-MM-DD') interpreta como UTC meia-noite, o que "volta" um dia
+// em fusos negativos como o do Brasil). Toda leitura de data-only passa por aqui.
+function parseLocalDate(dateInput) {
+  if (typeof dateInput === 'string') {
+    const match = dateInput.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (match) {
+      const [, y, m, d] = match;
+      return new Date(Number(y), Number(m) - 1, Number(d));
+    }
+  }
+  return new Date(dateInput);
+}
+
+function toLocalISODate(d) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
 function monthKey(date) {
-  const d = new Date(date);
+  const d = parseLocalDate(date);
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
 }
 
@@ -19,10 +37,72 @@ function fmtBRL(value) {
   return (value || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 }
 
+function daysInMonth(year, monthIndex1based) {
+  return new Date(year, monthIndex1based, 0).getDate();
+}
+
+// Data de vencimento da conta para um mês 'YYYY-MM', ajustando o dia se o mês for mais curto
+function billDueDateForMonth(bill, month) {
+  const [y, m] = month.split('-').map(Number);
+  const day = Math.min(bill.dueDay, daysInMonth(y, m));
+  return new Date(y, m - 1, day);
+}
+
+// Soma amount + n meses, preservando o dia (usado para parcelas de cartão)
+function addMonthsToDate(dateStr, n) {
+  const d = parseLocalDate(dateStr);
+  const day = d.getDate();
+  const target = new Date(d.getFullYear(), d.getMonth() + n, 1);
+  const lastDay = daysInMonth(target.getFullYear(), target.getMonth() + 1);
+  target.setDate(Math.min(day, lastDay));
+  return toLocalISODate(target);
+}
+
+// Divide um valor em N parcelas iguais, jogando o resto de arredondamento na última
+function splitInstallments(amount, installments) {
+  const base = Math.floor((amount / installments) * 100) / 100;
+  const parts = new Array(installments).fill(base);
+  const remainder = Math.round((amount - base * installments) * 100) / 100;
+  parts[parts.length - 1] = Math.round((parts[parts.length - 1] + remainder) * 100) / 100;
+  return parts;
+}
+
 const Calc = {
   monthKey,
   currentMonthKey,
   fmtBRL,
+  billDueDateForMonth,
+  addMonthsToDate,
+  splitInstallments,
+  parseLocalDate,
+  toLocalISODate,
+
+  // Alertas de contas a pagar: vencida, vence hoje, ou vence em até 3 dias
+  billAlerts(bills, month) {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    return bills
+      .filter((b) => b.active !== false && !b.paidMonths.includes(month))
+      .map((b) => {
+        const due = billDueDateForMonth(b, month);
+        const diffDays = Math.round((due - today) / 86400000);
+        let severity = null;
+        let message = null;
+        if (diffDays < 0) {
+          severity = 'critical';
+          message = `${b.name} venceu em ${due.toLocaleDateString('pt-BR')} (${fmtBRL(b.amount)}) e ainda não foi paga.`;
+        } else if (diffDays === 0) {
+          severity = 'critical';
+          message = `${b.name} vence hoje (${fmtBRL(b.amount)}).`;
+        } else if (diffDays <= 3) {
+          severity = 'warning';
+          message = `${b.name} vence em ${diffDays} dia${diffDays > 1 ? 's' : ''} (${due.toLocaleDateString('pt-BR')}), ${fmtBRL(b.amount)}.`;
+        }
+        return severity ? { severity, message, billId: b.id, due, diffDays } : null;
+      })
+      .filter(Boolean)
+      .sort((a, b) => a.diffDays - b.diffDays);
+  },
 
   transactionsForMonth(transactions, month) {
     return transactions.filter((t) => monthKey(t.date) === month);
@@ -34,10 +114,10 @@ const Calc = {
       .reduce((sum, t) => sum + Number(t.amount), 0);
   },
 
-  totalsByCategory(transactions, month) {
-    const expenses = Calc.transactionsForMonth(transactions, month).filter((t) => t.type === 'expense');
+  totalsByCategory(transactions, month, type = 'expense') {
+    const list = Calc.transactionsForMonth(transactions, month).filter((t) => t.type === type);
     const map = {};
-    for (const t of expenses) {
+    for (const t of list) {
       map[t.category] = (map[t.category] || 0) + Number(t.amount);
     }
     return map;
@@ -170,6 +250,40 @@ const Calc = {
     return {
       priority: 3,
       message: 'Reserva de emergência completa! Agora foque em investir 15-25% da renda para crescimento de patrimônio.',
+    };
+  },
+
+  // Simulação "posso gastar isso?": compara o impacto do gasto (1ª parcela, se parcelado)
+  // contra o que resta no orçamento da categoria este mês.
+  canSpend({ amount, installments, budgetStatus }) {
+    const parts = splitInstallments(amount, installments || 1);
+    const monthlyImpact = parts[0];
+
+    if (!budgetStatus) {
+      return {
+        canSpend: null,
+        monthlyImpact,
+        message: 'Nenhum orçamento definido para essa categoria ainda. Configure um limite em Orçamento para eu poder avaliar.',
+      };
+    }
+
+    const remaining = budgetStatus.limitAmount - budgetStatus.spent;
+    const remainingAfter = remaining - monthlyImpact;
+    const parcelaTxt = installments > 1 ? ` (1ª de ${installments} parcelas de ${fmtBRL(monthlyImpact)})` : '';
+
+    if (remainingAfter >= 0) {
+      return {
+        canSpend: true,
+        monthlyImpact,
+        remainingAfter,
+        message: `Pode gastar${parcelaTxt}. Depois desse gasto sobram ${fmtBRL(remainingAfter)} no orçamento de ${budgetStatus.category} este mês.`,
+      };
+    }
+    return {
+      canSpend: false,
+      monthlyImpact,
+      remainingAfter,
+      message: `Vai estourar o orçamento de ${budgetStatus.category}${parcelaTxt} em ${fmtBRL(Math.abs(remainingAfter))}. Hoje restam ${fmtBRL(Math.max(remaining, 0))} nessa categoria.`,
     };
   },
 
