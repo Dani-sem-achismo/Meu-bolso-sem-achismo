@@ -1,13 +1,16 @@
 :root {
-  --primary: #6366F1;
-  --success: #10B981;
-  --warning: #F59E0B;
-  --danger: #EF4444;
-  --bg: #F9FAFB;
-  --surface: #FFFFFF;
-  --text: #1F2937;
-  --text-secondary: #6B7280;
-  --border: #E5E7EB;
+  /* Identidade visual "Dani Sem Achismo": navy escuro + gradiente roxo-rosa-laranja */
+  --primary: #8B5CF6;
+  --success: #34D399;
+  --warning: #F97316;
+  --danger: #F43F5E;
+  --bg: #0F0E2A;
+  --surface: #1B1836;
+  --surface-2: #241F47;
+  --text: #F5F3FF;
+  --text-secondary: #A5A0C2;
+  --border: #33305A;
+  --brand-gradient: linear-gradient(135deg, #7C3AED 0%, #EC4899 55%, #F97316 100%);
 }
 
 * { box-sizing: border-box; }
@@ -63,15 +66,16 @@ html, body {
   height: 32px;
   border-radius: 50%;
   background: var(--surface);
-  box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+  border: 1px solid var(--border);
 }
 
 .card {
   background: var(--surface);
+  border: 1px solid var(--border);
   border-radius: 12px;
   padding: 16px;
   margin-bottom: 16px;
-  box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+  box-shadow: 0 4px 16px rgba(0,0,0,0.25);
 }
 
 .card-title {
@@ -152,9 +156,9 @@ html, body {
   margin-bottom: 10px;
   line-height: 1.4;
 }
-.alert.critical { background: #FEF2F2; color: #B91C1C; border: 1px solid #FCA5A5; }
-.alert.warning { background: #FFFBEB; color: #92400E; border: 1px solid #FDE68A; }
-.alert.info { background: #EEF2FF; color: #3730A3; border: 1px solid #C7D2FE; }
+.alert.critical { background: rgba(244,63,94,0.14); color: #FDA4AF; border: 1px solid rgba(244,63,94,0.4); }
+.alert.warning { background: rgba(249,115,22,0.14); color: #FDBA74; border: 1px solid rgba(249,115,22,0.4); }
+.alert.info { background: rgba(139,92,246,0.14); color: #C4B5FD; border: 1px solid rgba(139,92,246,0.4); }
 
 .empty-state {
   text-align: center;
@@ -195,7 +199,7 @@ textarea { resize: vertical; min-height: 60px; }
   cursor: pointer;
   margin-top: 16px;
 }
-.btn-primary { background: var(--primary); color: #fff; }
+.btn-primary { background: var(--brand-gradient); color: #fff; }
 .btn-secondary { background: var(--bg); color: var(--text); border: 1px solid var(--border); }
 .btn-danger { background: transparent; color: var(--danger); }
 
@@ -279,11 +283,11 @@ textarea { resize: vertical; min-height: 60px; }
   transform: translateX(76px);
   width: 56px; height: 56px;
   border-radius: 50%;
-  background: var(--primary);
+  background: var(--brand-gradient);
   color: #fff;
   font-size: 28px;
   border: none;
-  box-shadow: 0 4px 10px rgba(99,102,241,0.4);
+  box-shadow: 0 4px 16px rgba(236,72,153,0.4);
   cursor: pointer;
   z-index: 21;
 }
