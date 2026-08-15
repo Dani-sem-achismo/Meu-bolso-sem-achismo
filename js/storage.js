@@ -83,6 +83,17 @@ const Storage = {
     const list = Storage.getTransactions().filter((t) => t.id !== id);
     writeJSON(DB_KEYS.transactions, list);
   },
+  updateTransaction(id, patch) {
+    const list = Storage.getTransactions();
+    const idx = list.findIndex((t) => t.id === id);
+    if (idx >= 0) {
+      list[idx] = { ...list[idx], ...patch };
+      writeJSON(DB_KEYS.transactions, list);
+    }
+  },
+  getTransaction(id) {
+    return Storage.getTransactions().find((t) => t.id === id) || null;
+  },
 
   // Orçamentos por categoria e mês (ex: '2026-08')
   getBudgets() {
@@ -116,6 +127,14 @@ const Storage = {
   deleteInvestment(id) {
     const list = Storage.getInvestments().filter((i) => i.id !== id);
     writeJSON(DB_KEYS.investments, list);
+  },
+  updateInvestment(id, patch) {
+    const list = Storage.getInvestments();
+    const idx = list.findIndex((i) => i.id === id);
+    if (idx >= 0) {
+      list[idx] = { ...list[idx], ...patch };
+      writeJSON(DB_KEYS.investments, list);
+    }
   },
 
   // Perfil do usuário

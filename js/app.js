@@ -108,19 +108,86 @@ function renderBenefitCardSelect(kind) {
     : `<option value="">Nenhum cartão cadastrado — adicione em Mais</option>`;
 }
 
-function openTxModal(prefill) {
-  document.getElementById('tx-amount').value = prefill ? prefill.amount : '';
-  document.getElementById('tx-desc').value = '';
-  document.getElementById('tx-date').value = todayISO();
-  document.getElementById('tx-card-name').value = '';
-  document.getElementById('tx-installments').value = prefill ? prefill.installments || 1 : 1;
-  setTxType('expense');
-  if (prefill && prefill.category) state.txCategory = prefill.category;
-  renderTxCategories();
-  setTxPayment(prefill ? prefill.payment || 'Dinheiro' : 'Dinheiro');
-  renderAccountOptions(document.getElementById('tx-account'));
+function describeTxPayment(tx) {
+  if (!tx.paymentMethod) return tx.type === 'income' ? 'Receita' : '';
+  let extra = '';
+  if (tx.paymentMethod === 'Cartão de Crédito') extra = ` (${tx.cardName || 'cartão'}${tx.installmentLabel ? ' ' + tx.installmentLabel : ''})`;
+  else if (tx.cardName) extra = ` (${tx.cardName})`;
+  return `Forma de pagamento: ${tx.paymentMethod}${extra} — não editável aqui. Para mudar, apague e lance de novo.`;
+}
+
+function reverseTransactionEffects(tx) {
+  if (tx.accountId) {
+    Storage.adjustAccountBalance(tx.accountId, tx.type === 'income' ? -tx.amount : tx.amount);
+  }
+  if (tx.cardId) {
+    const card = Storage.getCards().find((c) => c.id === tx.cardId);
+    if (card && card.kind !== 'credito') Storage.adjustCardBalance(tx.cardId, tx.amount);
+  }
+}
+
+function applyTransactionEffects(tx) {
+  if (tx.accountId) {
+    Storage.adjustAccountBalance(tx.accountId, tx.type === 'income' ? tx.amount : -tx.amount);
+  }
+  if (tx.cardId) {
+    const card = Storage.getCards().find((c) => c.id === tx.cardId);
+    if (card && card.kind !== 'credito') Storage.adjustCardBalance(tx.cardId, -tx.amount);
+  }
+}
+
+function deleteTransactionById(id) {
+  const tx = Storage.getTransaction(id);
+  if (!tx) return;
+  if (!confirm('Apagar este lançamento? Essa ação não pode ser desfeita.')) return;
+  reverseTransactionEffects(tx);
+  Storage.deleteTransaction(id);
+  renderAll();
+}
+
+function openTxModal(prefill, editId) {
+  state.editingTxId = editId || null;
+  const deleteBtn = document.getElementById('btn-delete-tx');
+  const infoEl = document.getElementById('tx-edit-payment-info');
+
+  if (editId) {
+    const tx = Storage.getTransaction(editId);
+    if (!tx) return;
+    document.getElementById('tx-modal-title').textContent = 'Editar lançamento';
+    document.getElementById('tx-amount').value = tx.amount;
+    document.getElementById('tx-desc').value = tx.description || '';
+    document.getElementById('tx-date').value = tx.date;
+    setTxType(tx.type);
+    state.txCategory = tx.category;
+    renderTxCategories();
+    document.getElementById('tx-payment-wrap').style.display = 'none';
+    document.getElementById('tx-account-wrap').style.display = 'none';
+    infoEl.style.display = 'block';
+    infoEl.textContent = describeTxPayment(tx);
+    deleteBtn.style.display = 'block';
+  } else {
+    document.getElementById('tx-modal-title').textContent = 'Novo lançamento';
+    document.getElementById('tx-amount').value = prefill ? prefill.amount : '';
+    document.getElementById('tx-desc').value = '';
+    document.getElementById('tx-date').value = todayISO();
+    document.getElementById('tx-card-name').value = '';
+    document.getElementById('tx-installments').value = prefill ? prefill.installments || 1 : 1;
+    setTxType('expense');
+    if (prefill && prefill.category) state.txCategory = prefill.category;
+    renderTxCategories();
+    setTxPayment(prefill ? prefill.payment || 'Dinheiro' : 'Dinheiro');
+    renderAccountOptions(document.getElementById('tx-account'));
+    infoEl.style.display = 'none';
+    deleteBtn.style.display = 'none';
+  }
   openModal('modal-tx');
 }
+
+document.getElementById('btn-delete-tx').addEventListener('click', () => {
+  if (!state.editingTxId) return;
+  deleteTransactionById(state.editingTxId);
+  closeModal('modal-tx');
+});
 
 function setTxType(type) {
   state.txType = type;
@@ -186,6 +253,18 @@ document.getElementById('btn-save-tx').addEventListener('click', () => {
   const date = document.getElementById('tx-date').value || todayISO();
   const description = document.getElementById('tx-desc').value.trim();
   const category = state.txCategory;
+
+  if (state.editingTxId) {
+    const old = Storage.getTransaction(state.editingTxId);
+    reverseTransactionEffects(old);
+    const updated = { ...old, amount, category, date, description, type: state.txType };
+    applyTransactionEffects(updated);
+    Storage.updateTransaction(state.editingTxId, { amount, category, date, description, type: state.txType });
+    closeModal('modal-tx');
+    renderAll();
+    return;
+  }
+
   const accountId = document.getElementById('tx-account').value || null;
   const isCredit = state.txType === 'expense' && state.txPayment === 'Cartão de Crédito';
   const benefitKind = state.txType === 'expense' ? PAYMENT_TO_CARD_KIND[state.txPayment] : null;
@@ -250,17 +329,37 @@ document.getElementById('btn-save-tx').addEventListener('click', () => {
 
 // ==================== INVESTIMENTOS ====================
 
-function openInvModal() {
-  document.getElementById('inv-amount').value = '';
-  document.getElementById('inv-name').value = '';
-  document.getElementById('inv-date').value = todayISO();
-  document.getElementById('inv-rate').value = '';
-  document.getElementById('inv-maturity').value = '';
+function openInvModal(editId) {
+  state.editingInvId = editId || null;
+  const deleteBtn = document.getElementById('btn-delete-inv');
   const sel = document.getElementById('inv-class');
   sel.innerHTML = ASSET_CLASSES.map((c) => `<option value="${c}">${c}</option>`).join('');
   const liqSel = document.getElementById('inv-liquidity');
   liqSel.innerHTML = LIQUIDITY_OPTIONS.map((l) => `<option value="${l}">${l}</option>`).join('');
-  setInvMovement('aporte');
+
+  if (editId) {
+    const inv = Storage.getInvestments().find((i) => i.id === editId);
+    if (!inv) return;
+    document.getElementById('inv-modal-title').textContent = 'Editar investimento';
+    document.getElementById('inv-amount').value = inv.amount;
+    document.getElementById('inv-name').value = inv.name || '';
+    document.getElementById('inv-date').value = inv.date;
+    document.getElementById('inv-rate').value = inv.rate || '';
+    document.getElementById('inv-maturity').value = inv.maturity || '';
+    sel.value = inv.assetClass;
+    liqSel.value = inv.liquidity || 'Diária';
+    setInvMovement(inv.movement);
+    deleteBtn.style.display = 'block';
+  } else {
+    document.getElementById('inv-modal-title').textContent = 'Novo aporte / resgate';
+    document.getElementById('inv-amount').value = '';
+    document.getElementById('inv-name').value = '';
+    document.getElementById('inv-date').value = todayISO();
+    document.getElementById('inv-rate').value = '';
+    document.getElementById('inv-maturity').value = '';
+    setInvMovement('aporte');
+    deleteBtn.style.display = 'none';
+  }
   openModal('modal-inv');
 }
 
@@ -280,7 +379,7 @@ document.getElementById('btn-save-inv').addEventListener('click', () => {
     alert('Informe um valor válido.');
     return;
   }
-  Storage.addInvestment({
+  const patch = {
     amount,
     assetClass: document.getElementById('inv-class').value,
     name: document.getElementById('inv-name').value.trim(),
@@ -289,21 +388,57 @@ document.getElementById('btn-save-inv').addEventListener('click', () => {
     liquidity: document.getElementById('inv-liquidity').value,
     rate: document.getElementById('inv-rate').value.trim(),
     maturity: document.getElementById('inv-maturity').value || null,
-  });
+  };
+  if (state.editingInvId) {
+    Storage.updateInvestment(state.editingInvId, patch);
+  } else {
+    Storage.addInvestment(patch);
+  }
+  closeModal('modal-inv');
+  renderAll();
+});
+
+document.getElementById('btn-delete-inv').addEventListener('click', () => {
+  if (!state.editingInvId) return;
+  if (!confirm('Apagar este registro de investimento?')) return;
+  Storage.deleteInvestment(state.editingInvId);
   closeModal('modal-inv');
   renderAll();
 });
 
 // ==================== CONTAS A PAGAR ====================
 
-function openBillModal() {
-  document.getElementById('bill-name').value = '';
-  document.getElementById('bill-amount').value = '';
-  document.getElementById('bill-day').value = '';
-  state.billCategory = Storage.getCategories()[0].name;
+function openBillModal(editId) {
+  state.editingBillId = editId || null;
+  const deleteBtn = document.getElementById('btn-delete-bill');
+  if (editId) {
+    const bill = Storage.getBills().find((b) => b.id === editId);
+    if (!bill) return;
+    document.getElementById('bill-modal-title').textContent = 'Editar conta';
+    document.getElementById('bill-name').value = bill.name;
+    document.getElementById('bill-amount').value = bill.amount;
+    document.getElementById('bill-day').value = bill.dueDay;
+    state.billCategory = bill.category;
+    deleteBtn.style.display = 'block';
+  } else {
+    document.getElementById('bill-modal-title').textContent = 'Nova conta a pagar';
+    document.getElementById('bill-name').value = '';
+    document.getElementById('bill-amount').value = '';
+    document.getElementById('bill-day').value = '';
+    state.billCategory = Storage.getCategories()[0].name;
+    deleteBtn.style.display = 'none';
+  }
   renderBillCategories();
   openModal('modal-bill');
 }
+
+document.getElementById('btn-delete-bill').addEventListener('click', () => {
+  if (!state.editingBillId) return;
+  if (!confirm('Apagar esta conta a pagar?')) return;
+  Storage.deleteBill(state.editingBillId);
+  closeModal('modal-bill');
+  renderAll();
+});
 
 function renderBillCategories() {
   const wrap = document.getElementById('bill-categories');
@@ -328,7 +463,11 @@ document.getElementById('btn-save-bill').addEventListener('click', () => {
     alert('Preencha nome, valor e um dia de vencimento válido (1-31).');
     return;
   }
-  Storage.addBill({ name, amount, dueDay, category: state.billCategory });
+  if (state.editingBillId) {
+    Storage.updateBill(state.editingBillId, { name, amount, dueDay, category: state.billCategory });
+  } else {
+    Storage.addBill({ name, amount, dueDay, category: state.billCategory });
+  }
   closeModal('modal-bill');
   renderAll();
 });
@@ -354,7 +493,7 @@ function renderBills() {
       const due = Calc.billDueDateForMonth(b, month);
       return `
       <div class="tx-item">
-        <div class="tx-left">
+        <div class="tx-left" data-edit-bill="${b.id}" style="cursor:pointer;">
           <div class="tx-icon">${catIcon(b.category)}</div>
           <div>
             <div class="tx-desc">${b.name}</div>
@@ -369,8 +508,13 @@ function renderBills() {
     })
     .join('');
 
+  listEl.querySelectorAll('[data-edit-bill]').forEach((el) => {
+    el.addEventListener('click', () => openBillModal(el.dataset.editBill));
+  });
+
   listEl.querySelectorAll('[data-pay-bill]').forEach((btn) => {
-    btn.addEventListener('click', () => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
       const bill = bills.find((b) => b.id === btn.dataset.payBill);
       Storage.markBillPaid(bill.id, month);
       Storage.addTransaction({
@@ -388,13 +532,27 @@ function renderBills() {
 
 // ==================== CONTAS/SALDOS ====================
 
-function openAccountModal() {
-  document.getElementById('account-name').value = '';
-  document.getElementById('account-type').value = 'banco';
-  document.getElementById('account-balance').value = '';
+function openAccountModal(editId) {
+  state.editingAccountId = editId || null;
+  const deleteBtn = document.getElementById('btn-delete-account');
+  if (editId) {
+    const acc = Storage.getAccounts().find((a) => a.id === editId);
+    if (!acc) return;
+    document.getElementById('account-modal-title').textContent = 'Editar conta';
+    document.getElementById('account-name').value = acc.name;
+    document.getElementById('account-type').value = acc.type;
+    document.getElementById('account-balance').value = acc.balance;
+    deleteBtn.style.display = 'block';
+  } else {
+    document.getElementById('account-modal-title').textContent = 'Nova conta ou carteira';
+    document.getElementById('account-name').value = '';
+    document.getElementById('account-type').value = 'banco';
+    document.getElementById('account-balance').value = '';
+    deleteBtn.style.display = 'none';
+  }
   openModal('modal-account');
 }
-document.getElementById('btn-add-account').addEventListener('click', openAccountModal);
+document.getElementById('btn-add-account').addEventListener('click', () => openAccountModal());
 
 document.getElementById('btn-save-account').addEventListener('click', () => {
   const name = document.getElementById('account-name').value.trim();
@@ -404,7 +562,19 @@ document.getElementById('btn-save-account').addEventListener('click', () => {
     alert('Dê um nome para a conta/carteira.');
     return;
   }
-  Storage.addAccount({ name, type, balance });
+  if (state.editingAccountId) {
+    Storage.updateAccount(state.editingAccountId, { name, type, balance });
+  } else {
+    Storage.addAccount({ name, type, balance });
+  }
+  closeModal('modal-account');
+  renderAll();
+});
+
+document.getElementById('btn-delete-account').addEventListener('click', () => {
+  if (!state.editingAccountId) return;
+  if (!confirm('Apagar esta conta/carteira? Lançamentos já registrados não serão apagados.')) return;
+  Storage.deleteAccount(state.editingAccountId);
   closeModal('modal-account');
   renderAll();
 });
@@ -412,23 +582,27 @@ document.getElementById('btn-save-account').addEventListener('click', () => {
 function renderAccounts() {
   const accounts = Storage.getAccounts();
   const total = accounts.reduce((s, a) => s + Number(a.balance), 0);
-  document.getElementById('accounts-total').textContent = Calc.fmtBRL(total);
+  document.getElementById('accounts-total').textContent = maskCurrency(total);
 
   const listEl = document.getElementById('accounts-list');
   listEl.innerHTML = accounts.length
     ? accounts
         .map(
           (a) => `
-      <div class="tx-item">
+      <div class="tx-item" data-edit-account="${a.id}" style="cursor:pointer;">
         <div class="tx-left">
           <div class="tx-icon">${a.type === 'carteira' ? '👛' : '🏦'}</div>
           <div class="tx-desc">${a.name}</div>
         </div>
-        <div class="tx-amount income">${Calc.fmtBRL(a.balance)}</div>
+        <div class="tx-amount income">${maskCurrency(a.balance)}</div>
       </div>`
         )
         .join('')
     : `<div class="empty-state">Nenhuma conta cadastrada. Adicione seus bancos e o dinheiro que você tem em casa.</div>`;
+
+  listEl.querySelectorAll('[data-edit-account]').forEach((el) => {
+    el.addEventListener('click', () => openAccountModal(el.dataset.editAccount));
+  });
 }
 
 // ==================== CARTÕES (crédito, alimentação, refeição) ====================
@@ -446,16 +620,33 @@ function setCardKind(kind) {
   document.getElementById('card-beneficio-fields').style.display = kind !== 'credito' ? 'block' : 'none';
 }
 
-function openCardModal() {
-  document.getElementById('card-name').value = '';
-  document.getElementById('card-due-day').value = '';
-  document.getElementById('card-limit').value = '';
-  document.getElementById('card-deposit').value = '';
-  document.getElementById('card-balance').value = '';
-  setCardKind('credito');
+function openCardModal(editId) {
+  state.editingCardId = editId || null;
+  const deleteBtn = document.getElementById('btn-delete-card');
+  if (editId) {
+    const card = Storage.getCards().find((c) => c.id === editId);
+    if (!card) return;
+    document.getElementById('card-modal-title').textContent = 'Editar cartão';
+    document.getElementById('card-name').value = card.name;
+    document.getElementById('card-due-day').value = card.dueDay || '';
+    document.getElementById('card-limit').value = card.limit || '';
+    document.getElementById('card-deposit').value = card.monthlyDeposit || '';
+    document.getElementById('card-balance').value = card.balance || '';
+    setCardKind(card.kind);
+    deleteBtn.style.display = 'block';
+  } else {
+    document.getElementById('card-modal-title').textContent = 'Novo cartão';
+    document.getElementById('card-name').value = '';
+    document.getElementById('card-due-day').value = '';
+    document.getElementById('card-limit').value = '';
+    document.getElementById('card-deposit').value = '';
+    document.getElementById('card-balance').value = '';
+    setCardKind('credito');
+    deleteBtn.style.display = 'none';
+  }
   openModal('modal-card');
 }
-document.getElementById('btn-add-card').addEventListener('click', openCardModal);
+document.getElementById('btn-add-card').addEventListener('click', () => openCardModal());
 
 document.getElementById('btn-save-card').addEventListener('click', () => {
   const name = document.getElementById('card-name').value.trim();
@@ -463,6 +654,7 @@ document.getElementById('btn-save-card').addEventListener('click', () => {
     alert('Dê um nome para o cartão.');
     return;
   }
+  let patch;
   if (state.cardKind === 'credito') {
     const dueDay = parseInt(document.getElementById('card-due-day').value);
     const limit = parseFloat(document.getElementById('card-limit').value) || 0;
@@ -470,12 +662,25 @@ document.getElementById('btn-save-card').addEventListener('click', () => {
       alert('Informe um dia de vencimento válido (1-31).');
       return;
     }
-    Storage.addCard({ name, kind: 'credito', dueDay, limit });
+    patch = { name, kind: 'credito', dueDay, limit };
   } else {
     const monthlyDeposit = parseFloat(document.getElementById('card-deposit').value) || 0;
     const balance = parseFloat(document.getElementById('card-balance').value) || 0;
-    Storage.addCard({ name, kind: state.cardKind, monthlyDeposit, balance });
+    patch = { name, kind: state.cardKind, monthlyDeposit, balance };
   }
+  if (state.editingCardId) {
+    Storage.updateCard(state.editingCardId, patch);
+  } else {
+    Storage.addCard(patch);
+  }
+  closeModal('modal-card');
+  renderAll();
+});
+
+document.getElementById('btn-delete-card').addEventListener('click', () => {
+  if (!state.editingCardId) return;
+  if (!confirm('Apagar este cartão? Lançamentos já registrados não serão apagados.')) return;
+  Storage.deleteCard(state.editingCardId);
   closeModal('modal-card');
   renderAll();
 });
@@ -500,25 +705,29 @@ function renderCards() {
         const pct = c.limit > 0 ? (outstanding / c.limit) * 100 : 0;
         const statusClass = pct > 100 ? 'status-ultrapassado' : pct >= 80 ? 'status-aviso' : 'status-ok';
         return `
-        <div class="cat-row" style="display:block;">
+        <div class="cat-row" data-edit-card="${c.id}" style="display:block;cursor:pointer;">
           <div class="cat-name">${kindInfo.icon} ${c.name}</div>
-          <div class="cat-values">Vence dia ${c.dueDay} · usado ${Calc.fmtBRL(outstanding)} / ${Calc.fmtBRL(c.limit)} · disponível ${Calc.fmtBRL(available)}</div>
+          <div class="cat-values">Vence dia ${c.dueDay} · usado ${maskCurrency(outstanding)} / ${maskCurrency(c.limit)} · disponível ${maskCurrency(available)}</div>
           <div class="progress-bar"><div class="progress-fill ${statusClass}" style="width:${Math.min(Math.max(pct, 0), 100)}%"></div></div>
         </div>`;
       }
       return `
-      <div class="tx-item">
+      <div class="tx-item" data-edit-card="${c.id}" style="cursor:pointer;">
         <div class="tx-left">
           <div class="tx-icon">${kindInfo.icon}</div>
           <div>
             <div class="tx-desc">${c.name}</div>
-            <div class="tx-date">${kindInfo.label}${c.monthlyDeposit ? ' · cai ' + Calc.fmtBRL(c.monthlyDeposit) + '/mês' : ''}</div>
+            <div class="tx-date">${kindInfo.label}${c.monthlyDeposit ? ' · cai ' + maskCurrency(c.monthlyDeposit) + '/mês' : ''}</div>
           </div>
         </div>
-        <div class="tx-amount income">${Calc.fmtBRL(c.balance)}</div>
+        <div class="tx-amount income">${maskCurrency(c.balance)}</div>
       </div>`;
     })
     .join('');
+
+  listEl.querySelectorAll('[data-edit-card]').forEach((el) => {
+    el.addEventListener('click', () => openCardModal(el.dataset.editCard));
+  });
 }
 
 // ==================== POSSO GASTAR ISSO? (simulador) ====================
@@ -753,18 +962,31 @@ function renderDashboard() {
               : '';
           return `
       <div class="tx-item">
-        <div class="tx-left">
+        <div class="tx-left" data-edit-tx="${t.id}" style="cursor:pointer;">
           <div class="tx-icon">${t.type === 'income' ? '💰' : catIcon(t.category)}</div>
           <div>
             <div class="tx-desc">${t.description || t.category}</div>
             <div class="tx-date">${Calc.parseLocalDate(t.date).toLocaleDateString('pt-BR')}${paymentTag}</div>
           </div>
         </div>
-        <div class="tx-amount ${t.type}">${t.type === 'income' ? '+' : '-'} ${maskCurrency(t.amount)}</div>
+        <div style="display:flex;align-items:center;gap:8px;">
+          <div class="tx-amount ${t.type}">${t.type === 'income' ? '+' : '-'} ${maskCurrency(t.amount)}</div>
+          <button class="close-btn" data-delete-tx="${t.id}" title="Apagar">🗑️</button>
+        </div>
       </div>`;
         })
         .join('')
     : `<div class="empty-state">Nenhuma transação este mês. Toque em "+" para começar.</div>`;
+
+  txEl.querySelectorAll('[data-edit-tx]').forEach((el) => {
+    el.addEventListener('click', () => openTxModal(null, el.dataset.editTx));
+  });
+  txEl.querySelectorAll('[data-delete-tx]').forEach((el) => {
+    el.addEventListener('click', (e) => {
+      e.stopPropagation();
+      deleteTransactionById(el.dataset.deleteTx);
+    });
+  });
 }
 
 // -------- Render: Orçamentos --------
@@ -872,7 +1094,7 @@ function renderInvestments() {
             .filter(Boolean)
             .join(' · ');
           return `
-      <div class="tx-item">
+      <div class="tx-item" data-edit-inv="${i.id}" style="cursor:pointer;">
         <div class="tx-left">
           <div class="tx-icon">📈</div>
           <div>
@@ -885,6 +1107,10 @@ function renderInvestments() {
         })
         .join('')
     : `<div class="empty-state">Toque em "+" para registrar seu primeiro aporte.</div>`;
+
+  listEl.querySelectorAll('[data-edit-inv]').forEach((el) => {
+    el.addEventListener('click', () => openInvModal(el.dataset.editInv));
+  });
 }
 
 // -------- Render: Mais (Saldos + Perfil) --------
@@ -997,6 +1223,57 @@ function checkAndNotifyDueToday() {
     localStorage.setItem(notifiedKey, JSON.stringify(notified));
   }
 }
+
+// ==================== BACKUP (exportar/importar) ====================
+// Como não há nuvem, o backup é um arquivo .json que o usuário salva e guarda
+// onde quiser. Importar substitui todos os dados atuais pelos do arquivo.
+
+const BACKUP_KEYS = Object.values(DB_KEYS).concat(['finapp_hide_values']);
+
+document.getElementById('btn-export-backup').addEventListener('click', () => {
+  const data = {};
+  BACKUP_KEYS.forEach((key) => {
+    const raw = localStorage.getItem(key);
+    if (raw !== null) data[key] = raw;
+  });
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `backup-financeiro-${todayISO()}.json`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+});
+
+document.getElementById('input-import-backup').addEventListener('change', (e) => {
+  const file = e.target.files[0];
+  e.target.value = '';
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    let data;
+    try {
+      data = JSON.parse(reader.result);
+    } catch (err) {
+      alert('Arquivo inválido. Selecione um backup exportado por este app.');
+      return;
+    }
+    if (!confirm('Isso vai substituir todos os dados atuais do app pelos do backup. Continuar?')) return;
+    BACKUP_KEYS.forEach((key) => localStorage.removeItem(key));
+    Object.entries(data).forEach(([key, rawValue]) => {
+      if (BACKUP_KEYS.includes(key)) localStorage.setItem(key, rawValue);
+    });
+    alert('Backup importado! O app vai recarregar.');
+    location.reload();
+  };
+  reader.readAsText(file);
+});
+
+// ==================== COMO USAR ====================
+
+document.getElementById('btn-open-help').addEventListener('click', () => openModal('modal-help'));
 
 // -------- Init --------
 document.getElementById('btn-toggle-hide').textContent = state.hideValues ? '🙈' : '👁️';
