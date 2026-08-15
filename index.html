@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
+<title>Meu Financeiro</title>
+<meta name="theme-color" content="#6366F1">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icons/icon.svg">
+<link rel="icon" href="icons/icon.svg">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Financeiro">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<div id="app">
+
+  <div class="appbar" id="appbar-title">Dashboard</div>
+
+  <!-- ============ DASHBOARD ============ -->
+  <section class="screen active" id="screen-dashboard">
+    <div class="card">
+      <p class="card-title">Total gasto este mês</p>
+      <p class="big-number" id="dash-total-spent">R$ 0,00</p>
+      <p class="sub-line" id="dash-comparison">—</p>
+    </div>
+
+    <div id="dash-alerts"></div>
+
+    <div class="section-title">Orçamento por categoria</div>
+    <div class="card" id="dash-budgets"></div>
+
+    <div class="section-title">Últimas transações</div>
+    <div class="card" id="dash-transactions"></div>
+  </section>
+
+  <!-- ============ ORÇAMENTOS ============ -->
+  <section class="screen" id="screen-budgets">
+    <div class="card">
+      <p class="card-title">Defina o limite mensal por categoria</p>
+      <div id="budget-inputs"></div>
+    </div>
+    <div class="card">
+      <p class="card-title">Sugestão 50/30/20 (com base na sua renda)</p>
+      <div id="budget-suggestion" class="sub-line">Cadastre sua renda em Perfil para ver a sugestão.</div>
+    </div>
+  </section>
+
+  <!-- ============ INVESTIMENTOS ============ -->
+  <section class="screen" id="screen-investments">
+    <div class="card">
+      <p class="card-title">Patrimônio investido</p>
+      <p class="big-number" id="inv-total">R$ 0,00</p>
+    </div>
+    <div id="inv-alerts"></div>
+    <div class="section-title">Alocação por classe</div>
+    <div class="card" id="inv-allocation"></div>
+    <div class="section-title">Aportes e resgates</div>
+    <div class="card" id="inv-list"></div>
+  </section>
+
+  <!-- ============ PERFIL ============ -->
+  <section class="screen" id="screen-profile">
+    <div class="card">
+      <p class="card-title">Seus dados financeiros</p>
+      <label for="profile-income">Renda mensal (R$)</label>
+      <input type="number" id="profile-income" inputmode="decimal" placeholder="0,00">
+
+      <label for="profile-dependents">Número de dependentes</label>
+      <input type="number" id="profile-dependents" inputmode="numeric" min="0" value="0">
+
+      <label for="profile-risk">Perfil de risco</label>
+      <select id="profile-risk">
+        <option>Conservador</option>
+        <option selected>Moderado</option>
+        <option>Agressivo</option>
+      </select>
+
+      <label for="profile-emergency">Reserva de emergência atual (R$)</label>
+      <input type="number" id="profile-emergency" inputmode="decimal" placeholder="0,00">
+
+      <label class="chip" style="display:flex;align-items:center;gap:8px;width:fit-content;margin-top:12px;">
+        <input type="checkbox" id="profile-debt" style="width:auto;"> Tenho dívidas caras (cartão/cheque especial)
+      </label>
+
+      <button class="btn btn-primary" id="btn-save-profile">Salvar</button>
+    </div>
+
+    <div class="card">
+      <p class="card-title">Orientação</p>
+      <div id="profile-recommendation" class="sub-line"></div>
+    </div>
+
+    <div class="card">
+      <p class="sub-line">⚠️ Este app dá sugestões educacionais baseadas em regras gerais (reserva de emergência, 50/30/20, diversificação). Não é aconselhamento financeiro personalizado — para decisões importantes, consulte um planejador CFP®. Todos os dados ficam salvos apenas neste aparelho.</p>
+    </div>
+  </section>
+
+  <!-- ============ NAV ============ -->
+  <nav class="bottom-nav">
+    <button class="nav-item active" data-screen="dashboard"><span class="icon">🏠</span>Início</button>
+    <button class="nav-item" data-screen="budgets"><span class="icon">🎯</span>Orçamento</button>
+    <button class="nav-item" data-screen="investments"><span class="icon">📈</span>Investir</button>
+    <button class="nav-item" data-screen="profile"><span class="icon">👤</span>Perfil</button>
+  </nav>
+
+  <button class="fab" id="fab-add">+</button>
+
+  <!-- ============ MODAL: ADICIONAR TRANSAÇÃO ============ -->
+  <div class="modal-overlay" id="modal-tx">
+    <div class="modal-sheet">
+      <div class="modal-header">
+        <h2>Novo lançamento</h2>
+        <button class="close-btn" data-close="modal-tx">✕</button>
+      </div>
+
+      <div class="type-toggle">
+        <button class="type-btn expense selected" data-type="expense">Gasto</button>
+        <button class="type-btn income" data-type="income">Receita</button>
+      </div>
+
+      <label for="tx-amount">Valor (R$)</label>
+      <input type="number" id="tx-amount" inputmode="decimal" placeholder="0,00" autofocus>
+
+      <label>Categoria</label>
+      <div class="chip-list" id="tx-categories"></div>
+
+      <label for="tx-date">Data</label>
+      <input type="date" id="tx-date">
+
+      <label for="tx-desc">Descrição (opcional)</label>
+      <input type="text" id="tx-desc" placeholder="Ex: Supermercado">
+
+      <button class="btn btn-primary" id="btn-save-tx">Salvar</button>
+    </div>
+  </div>
+
+  <!-- ============ MODAL: NOVO APORTE ============ -->
+  <div class="modal-overlay" id="modal-inv">
+    <div class="modal-sheet">
+      <div class="modal-header">
+        <h2>Novo aporte / resgate</h2>
+        <button class="close-btn" data-close="modal-inv">✕</button>
+      </div>
+
+      <div class="type-toggle">
+        <button class="type-btn income selected" data-movement="aporte">Aporte</button>
+        <button class="type-btn expense" data-movement="resgate">Resgate</button>
+      </div>
+
+      <label for="inv-amount">Valor (R$)</label>
+      <input type="number" id="inv-amount" inputmode="decimal" placeholder="0,00">
+
+      <label for="inv-class">Classe de ativo</label>
+      <select id="inv-class"></select>
+
+      <label for="inv-name">Nome do ativo (opcional)</label>
+      <input type="text" id="inv-name" placeholder="Ex: Tesouro IPCA+, PETR4...">
+
+      <label for="inv-date">Data</label>
+      <input type="date" id="inv-date">
+
+      <button class="btn btn-primary" id="btn-save-inv">Salvar</button>
+    </div>
+  </div>
+
+</div>
+
+<script src="js/storage.js"></script>
+<script src="js/calc.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>

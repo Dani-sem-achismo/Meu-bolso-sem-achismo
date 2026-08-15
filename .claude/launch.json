@@ -1,0 +1,21 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "financeiro-static",
+      "runtimeExecutable": "powershell.exe",
+      "runtimeArgs": [
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        "server.ps1",
+        "-Root",
+        ".",
+        "-Port",
+        "8080"
+      ],
+      "port": 8080
+    }
+  ]
+}
