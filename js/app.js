@@ -9,7 +9,33 @@ const state = {
   simCategory: null,
   simPayment: 'Dinheiro',
   hideValues: localStorage.getItem('finapp_hide_values') === '1',
+  viewMonth: Calc.currentMonthKey(),
 };
+
+// -------- Navegação por mês (compartilhada entre Início e Orçamento) --------
+function renderMonthNav() {
+  const isCurrent = state.viewMonth === Calc.currentMonthKey();
+  document.querySelectorAll('[data-month-nav]').forEach((nav) => {
+    nav.querySelector('[data-month-label]').textContent = Calc.monthLabel(state.viewMonth);
+    nav.querySelector('[data-month-today]').style.display = isCurrent ? 'none' : 'block';
+  });
+}
+
+function shiftViewMonth(delta) {
+  state.viewMonth = Calc.shiftMonth(state.viewMonth, delta);
+  renderMonthNav();
+  renderAll();
+}
+
+document.querySelectorAll('[data-month-prev]').forEach((btn) => btn.addEventListener('click', () => shiftViewMonth(-1)));
+document.querySelectorAll('[data-month-next]').forEach((btn) => btn.addEventListener('click', () => shiftViewMonth(1)));
+document.querySelectorAll('[data-month-today]').forEach((btn) =>
+  btn.addEventListener('click', () => {
+    state.viewMonth = Calc.currentMonthKey();
+    renderMonthNav();
+    renderAll();
+  })
+);
 
 function maskCurrency(value) {
   return state.hideValues ? '••••••' : Calc.fmtBRL(value);
@@ -999,7 +1025,8 @@ function renderTrendChart(containerId, months) {
 
 // -------- Render: Dashboard --------
 function renderDashboard() {
-  const month = Calc.currentMonthKey();
+  const month = state.viewMonth;
+  const isCurrentMonth = month === Calc.currentMonthKey();
   const transactions = Storage.getTransactions();
   const budgets = Storage.getBudgetsForMonth(month);
 
@@ -1009,13 +1036,13 @@ function renderDashboard() {
   const cmp = Calc.comparisonPrevMonth(transactions, month);
   const cmpEl = document.getElementById('dash-comparison');
   if (cmp.pct === null) {
-    cmpEl.textContent = 'Sem dados do mês passado para comparar.';
+    cmpEl.textContent = 'Sem dados do mês anterior para comparar.';
   } else if (state.hideValues) {
     const arrow = cmp.diff >= 0 ? '↑' : '↓';
-    cmpEl.textContent = `${arrow} ${Math.abs(cmp.pct).toFixed(0)}% vs. mês passado`;
+    cmpEl.textContent = `${arrow} ${Math.abs(cmp.pct).toFixed(0)}% vs. mês anterior`;
   } else {
     const arrow = cmp.diff >= 0 ? '↑' : '↓';
-    cmpEl.textContent = `${arrow} ${Math.abs(cmp.pct).toFixed(0)}% vs. mês passado (${Calc.fmtBRL(cmp.passado)})`;
+    cmpEl.textContent = `${arrow} ${Math.abs(cmp.pct).toFixed(0)}% vs. mês anterior (${Calc.fmtBRL(cmp.passado)})`;
   }
 
   // Gráficos
@@ -1035,25 +1062,27 @@ function renderDashboard() {
     : `<div class="empty-state">Nenhuma receita lançada este mês.</div>`;
 
   // Alertas: orçamento estourando + contas a vencer + faturas de cartão a vencer
+  // (vencimentos só fazem sentido olhando o mês real de hoje, não um mês passado/futuro navegado)
   const budgetStatuses = Calc.budgetStatus(budgets, transactions, month);
-  const alerts = [
-    ...Calc.billAlerts(Storage.getBills(), month),
-    ...Calc.cardAlerts(Storage.getCards(), transactions),
-    ...Calc.budgetAlerts(budgetStatuses),
-  ];
-  const projection = Calc.projectionEndOfMonth(transactions, month);
-  if (projection > totalSpent * 1.001 && budgets.length > 0) {
-    const totalBudget = budgets.reduce((s, b) => s + b.limitAmount, 0);
-    if (totalBudget > 0 && projection > totalBudget) {
-      alerts.push({
-        severity: 'info',
-        message: `No ritmo atual, projeção de gasto no mês é ${Calc.fmtBRL(projection)}, acima do orçamento total de ${Calc.fmtBRL(totalBudget)}.`,
-      });
+  const alerts = [...Calc.budgetAlerts(budgetStatuses)];
+  if (isCurrentMonth) {
+    alerts.unshift(...Calc.billAlerts(Storage.getBills(), month), ...Calc.cardAlerts(Storage.getCards(), transactions));
+    const projection = Calc.projectionEndOfMonth(transactions, month);
+    if (projection > totalSpent * 1.001 && budgets.length > 0) {
+      const totalBudget = budgets.reduce((s, b) => s + b.limitAmount, 0);
+      if (totalBudget > 0 && projection > totalBudget) {
+        alerts.push({
+          severity: 'info',
+          message: `No ritmo atual, projeção de gasto no mês é ${Calc.fmtBRL(projection)}, acima do orçamento total de ${Calc.fmtBRL(totalBudget)}.`,
+        });
+      }
     }
   }
   const alertsEl = document.getElementById('dash-alerts');
   alertsEl.innerHTML = alerts.length
     ? alerts.map((a) => `<div class="alert ${a.severity}">${a.message}</div>`).join('')
+    : !isCurrentMonth
+    ? `<div class="alert info">Você está vendo ${Calc.monthLabel(month)}. Toque em "Hoje" para voltar ao mês atual.</div>`
     : '';
 
   // Orçamento por categoria
@@ -1120,7 +1149,7 @@ function renderDashboard() {
 
 // -------- Render: Orçamentos --------
 function renderBudgets() {
-  const month = Calc.currentMonthKey();
+  const month = state.viewMonth;
   const categories = Storage.getCategories();
   const budgets = Storage.getBudgetsForMonth(month);
   const profile = Storage.getProfile();
@@ -1286,6 +1315,7 @@ function renderProfileRecommendation() {
 
 // -------- Render geral --------
 function renderAll() {
+  renderMonthNav();
   renderDashboard();
   if (state.screen === 'budgets') renderBudgets();
   if (state.screen === 'investments') renderInvestments();
@@ -1299,6 +1329,7 @@ function renderAll() {
   if (state.screen === 'more') {
     loadProfileForm();
     renderProfileRecommendation();
+    renderPinStatus();
   }
 }
 
@@ -1407,6 +1438,218 @@ document.getElementById('input-import-backup').addEventListener('change', (e) =>
 // ==================== COMO USAR ====================
 
 document.getElementById('btn-open-help').addEventListener('click', () => openModal('modal-help'));
+
+// ==================== HISTÓRICO / BUSCA DE TRANSAÇÕES ====================
+
+state.historyFilters = { search: '', type: 'all', category: '' };
+
+function openHistoryModal() {
+  document.getElementById('history-search').value = '';
+  state.historyFilters = { search: '', type: 'all', category: '' };
+  renderHistoryTypeFilter();
+  renderHistoryCategoryFilter();
+  renderHistoryList();
+  openModal('modal-history');
+}
+document.getElementById('btn-open-history').addEventListener('click', openHistoryModal);
+
+function renderHistoryTypeFilter() {
+  const wrap = document.getElementById('history-type-filter');
+  const options = [
+    { v: 'all', l: 'Todas' },
+    { v: 'expense', l: 'Gastos' },
+    { v: 'income', l: 'Receitas' },
+  ];
+  wrap.innerHTML = options
+    .map((o) => `<div class="chip ${state.historyFilters.type === o.v ? 'selected' : ''}" data-htype="${o.v}">${o.l}</div>`)
+    .join('');
+  wrap.querySelectorAll('.chip').forEach((chip) => {
+    chip.addEventListener('click', () => {
+      state.historyFilters.type = chip.dataset.htype;
+      renderHistoryTypeFilter();
+      renderHistoryList();
+    });
+  });
+}
+
+function renderHistoryCategoryFilter() {
+  const sel = document.getElementById('history-category-filter');
+  const names = [...new Set([...Storage.getCategories(), ...Storage.getIncomeCategories()].map((c) => c.name))];
+  sel.innerHTML = `<option value="">Todas as categorias</option>` + names.map((n) => `<option value="${n}">${n}</option>`).join('');
+  sel.value = state.historyFilters.category;
+}
+document.getElementById('history-category-filter').addEventListener('change', (e) => {
+  state.historyFilters.category = e.target.value;
+  renderHistoryList();
+});
+document.getElementById('history-search').addEventListener('input', (e) => {
+  state.historyFilters.search = e.target.value.trim().toLowerCase();
+  renderHistoryList();
+});
+
+function renderHistoryList() {
+  const { search, type, category } = state.historyFilters;
+  let list = [...Storage.getTransactions()];
+  if (type !== 'all') list = list.filter((t) => t.type === type);
+  if (category) list = list.filter((t) => t.category === category);
+  if (search) {
+    list = list.filter(
+      (t) => (t.description || '').toLowerCase().includes(search) || (t.category || '').toLowerCase().includes(search)
+    );
+  }
+  list.sort((a, b) => new Date(b.date) - new Date(a.date) || (b.createdAt || '').localeCompare(a.createdAt || ''));
+
+  const listEl = document.getElementById('history-list');
+  listEl.innerHTML = list.length
+    ? list
+        .map((t) => {
+          const paymentTag =
+            t.paymentMethod === 'Cartão de Crédito'
+              ? ` · 💳 ${t.cardName || 'Cartão'}${t.installmentLabel ? ' ' + t.installmentLabel : ''}`
+              : t.paymentMethod
+              ? ` · ${t.paymentMethod}`
+              : '';
+          return `
+      <div class="tx-item">
+        <div class="tx-left" data-hedit-tx="${t.id}" style="cursor:pointer;">
+          <div class="tx-icon">${t.type === 'income' ? '💰' : catIcon(t.category)}</div>
+          <div>
+            <div class="tx-desc">${t.description || t.category}</div>
+            <div class="tx-date">${Calc.parseLocalDate(t.date).toLocaleDateString('pt-BR')}${paymentTag}</div>
+          </div>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;">
+          <div class="tx-amount ${t.type}">${t.type === 'income' ? '+' : '-'} ${Calc.fmtBRL(t.amount)}</div>
+          <button class="close-btn" data-hdelete-tx="${t.id}" title="Apagar">🗑️</button>
+        </div>
+      </div>`;
+        })
+        .join('')
+    : `<div class="empty-state">Nenhuma transação encontrada.</div>`;
+
+  listEl.querySelectorAll('[data-hedit-tx]').forEach((el) => {
+    el.addEventListener('click', () => {
+      closeModal('modal-history');
+      openTxModal(null, el.dataset.heditTx);
+    });
+  });
+  listEl.querySelectorAll('[data-hdelete-tx]').forEach((el) => {
+    el.addEventListener('click', (e) => {
+      e.stopPropagation();
+      deleteTransactionById(el.dataset.hdeleteTx);
+      renderHistoryList();
+    });
+  });
+}
+
+// ==================== BLOQUEIO POR PIN ====================
+// PIN de 4 dígitos guardado só no aparelho, para dificultar que alguém que
+// pegue o celular veja seus dados sem querer. Não é criptografia real —
+// é uma trava simples de privacidade, consistente com o resto do app.
+
+let lockPinBuffer = '';
+
+function renderLockDots() {
+  const dotsEl = document.getElementById('lock-dots');
+  dotsEl.innerHTML = Array.from(
+    { length: 4 },
+    (_, i) =>
+      `<span style="width:14px;height:14px;border-radius:50%;display:inline-block;background:${
+        i < lockPinBuffer.length ? 'var(--primary)' : 'var(--border)'
+      };"></span>`
+  ).join('');
+}
+
+function renderLockKeypad() {
+  const keys = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '', '0', '⌫'];
+  const keypad = document.getElementById('lock-keypad');
+  keypad.innerHTML = keys
+    .map((k) =>
+      k === ''
+        ? `<div></div>`
+        : `<button data-lockkey="${k}" style="width:64px;height:64px;border-radius:50%;border:1px solid var(--border);background:var(--surface);font-size:20px;color:var(--text);">${k}</button>`
+    )
+    .join('');
+  keypad.querySelectorAll('[data-lockkey]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      if (btn.dataset.lockkey === '⌫') lockBackspace();
+      else lockKeyPress(btn.dataset.lockkey);
+    });
+  });
+}
+
+function lockKeyPress(digit) {
+  if (lockPinBuffer.length >= 4) return;
+  lockPinBuffer += digit;
+  renderLockDots();
+  document.getElementById('lock-error').textContent = '';
+  if (lockPinBuffer.length === 4) {
+    setTimeout(() => {
+      if (lockPinBuffer === localStorage.getItem('finapp_pin')) {
+        sessionStorage.setItem('finapp_unlocked', '1');
+        document.getElementById('lock-screen').style.display = 'none';
+      } else {
+        document.getElementById('lock-error').textContent = 'PIN incorreto.';
+        lockPinBuffer = '';
+        renderLockDots();
+      }
+    }, 150);
+  }
+}
+
+function lockBackspace() {
+  lockPinBuffer = lockPinBuffer.slice(0, -1);
+  renderLockDots();
+}
+
+document.getElementById('btn-forgot-pin').addEventListener('click', () => {
+  if (!confirm('Isso remove o PIN de acesso (seus dados continuam salvos normalmente). Continuar?')) return;
+  localStorage.removeItem('finapp_pin');
+  sessionStorage.setItem('finapp_unlocked', '1');
+  document.getElementById('lock-screen').style.display = 'none';
+  renderPinStatus();
+});
+
+renderLockKeypad();
+renderLockDots();
+
+function renderPinStatus() {
+  const has = !!localStorage.getItem('finapp_pin');
+  document.getElementById('pin-status').textContent = has
+    ? '🔒 PIN ativado. O app pede o PIN sempre que você abrir de novo.'
+    : 'Nenhum PIN configurado. Qualquer pessoa que abrir o app vê seus dados.';
+  document.getElementById('btn-set-pin').textContent = has ? '🔒 Alterar PIN' : '🔒 Criar PIN';
+  document.getElementById('btn-remove-pin').style.display = has ? 'block' : 'none';
+}
+
+document.getElementById('btn-set-pin').addEventListener('click', () => {
+  document.getElementById('set-pin-1').value = '';
+  document.getElementById('set-pin-2').value = '';
+  openModal('modal-set-pin');
+});
+
+document.getElementById('btn-save-pin').addEventListener('click', () => {
+  const p1 = document.getElementById('set-pin-1').value;
+  const p2 = document.getElementById('set-pin-2').value;
+  if (!/^\d{4}$/.test(p1)) {
+    alert('O PIN deve ter exatamente 4 números.');
+    return;
+  }
+  if (p1 !== p2) {
+    alert('Os PINs não coincidem.');
+    return;
+  }
+  localStorage.setItem('finapp_pin', p1);
+  sessionStorage.setItem('finapp_unlocked', '1');
+  closeModal('modal-set-pin');
+  renderPinStatus();
+});
+
+document.getElementById('btn-remove-pin').addEventListener('click', () => {
+  if (!confirm('Remover o bloqueio por PIN?')) return;
+  localStorage.removeItem('finapp_pin');
+  renderPinStatus();
+});
 
 // -------- Init --------
 document.getElementById('btn-toggle-hide').textContent = state.hideValues ? '🙈' : '👁️';
