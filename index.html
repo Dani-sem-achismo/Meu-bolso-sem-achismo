@@ -55,11 +55,33 @@
     <div class="card" id="dash-transactions"></div>
   </section>
 
-  <!-- ============ CONTAS A PAGAR ============ -->
-  <section class="screen" id="screen-bills">
+  <!-- ============ CADASTRO ============ -->
+  <section class="screen" id="screen-cadastro">
+    <div class="section-title">Contas bancárias e carteira</div>
+    <div class="card">
+      <p class="card-title">Total em contas e dinheiro físico</p>
+      <p class="big-number" id="accounts-total">R$ 0,00</p>
+    </div>
+    <div class="card" id="accounts-list"></div>
+    <button class="btn btn-secondary" id="btn-add-account">+ Adicionar conta ou carteira</button>
+
+    <div class="section-title">Cartões</div>
+    <div id="cards-alerts"></div>
+    <div class="card" id="cards-list"></div>
+    <button class="btn btn-secondary" id="btn-add-card">+ Adicionar cartão</button>
+
+    <div class="section-title">Categorias de gasto</div>
+    <div class="card" id="expense-categories-list"></div>
+    <button class="btn btn-secondary" id="btn-add-category">+ Adicionar categoria de gasto</button>
+
+    <div class="section-title">Tipos de receita</div>
+    <div class="card" id="income-categories-list"></div>
+    <button class="btn btn-secondary" id="btn-add-income-category">+ Adicionar tipo de receita</button>
+
+    <div class="section-title">Contas a pagar (vencimentos)</div>
     <div id="bills-alerts"></div>
-    <div class="section-title">Contas cadastradas</div>
     <div class="card" id="bills-list"></div>
+    <button class="btn btn-secondary" id="btn-add-bill">+ Adicionar conta a pagar</button>
   </section>
 
   <!-- ============ ORÇAMENTOS ============ -->
@@ -87,21 +109,8 @@
     <div class="card" id="inv-list"></div>
   </section>
 
-  <!-- ============ MAIS: SALDOS + PERFIL ============ -->
+  <!-- ============ MAIS: PERFIL, BACKUP, AJUDA ============ -->
   <section class="screen" id="screen-more">
-    <div class="section-title">Saldos</div>
-    <div class="card">
-      <p class="card-title">Total em contas e dinheiro físico</p>
-      <p class="big-number" id="accounts-total">R$ 0,00</p>
-    </div>
-    <div class="card" id="accounts-list"></div>
-    <button class="btn btn-secondary" id="btn-add-account">+ Adicionar conta ou carteira</button>
-
-    <div class="section-title">Cartões</div>
-    <div id="cards-alerts"></div>
-    <div class="card" id="cards-list"></div>
-    <button class="btn btn-secondary" id="btn-add-card">+ Adicionar cartão</button>
-
     <div class="section-title">Notificações</div>
     <div class="card">
       <p class="card-title">Avisar quando uma conta ou fatura vencer</p>
@@ -175,7 +184,7 @@
   <!-- ============ NAV ============ -->
   <nav class="bottom-nav">
     <button class="nav-item active" data-screen="dashboard"><span class="icon">🏠</span>Início</button>
-    <button class="nav-item" data-screen="bills"><span class="icon">📅</span>Contas</button>
+    <button class="nav-item" data-screen="cadastro"><span class="icon">🗂️</span>Cadastro</button>
     <button class="nav-item" data-screen="budgets"><span class="icon">🎯</span>Orçamento</button>
     <button class="nav-item" data-screen="investments"><span class="icon">📈</span>Investir</button>
     <button class="nav-item" data-screen="more"><span class="icon">☰</span>Mais</button>
@@ -421,6 +430,57 @@
     </div>
   </div>
 
+  <!-- ============ MODAL: CATEGORIA DE GASTO ============ -->
+  <div class="modal-overlay" id="modal-category">
+    <div class="modal-sheet">
+      <div class="modal-header">
+        <h2 id="category-modal-title">Nova categoria de gasto</h2>
+        <button class="close-btn" data-close="modal-category">✕</button>
+      </div>
+
+      <div class="two-col">
+        <div style="flex:0 0 70px;">
+          <label for="category-icon">Ícone</label>
+          <input type="text" id="category-icon" placeholder="🏷️" maxlength="4">
+        </div>
+        <div>
+          <label for="category-name">Nome</label>
+          <input type="text" id="category-name" placeholder="Ex: Pet, Filhos, Viagem...">
+        </div>
+      </div>
+
+      <label for="category-pct">% sugerido da renda líquida</label>
+      <input type="number" id="category-pct" min="0" max="100" placeholder="5">
+
+      <button class="btn btn-primary" id="btn-save-category">Salvar</button>
+      <button class="btn btn-danger" id="btn-delete-category" style="display:none;">Apagar categoria</button>
+    </div>
+  </div>
+
+  <!-- ============ MODAL: TIPO DE RECEITA ============ -->
+  <div class="modal-overlay" id="modal-income-category">
+    <div class="modal-sheet">
+      <div class="modal-header">
+        <h2 id="income-category-modal-title">Novo tipo de receita</h2>
+        <button class="close-btn" data-close="modal-income-category">✕</button>
+      </div>
+
+      <div class="two-col">
+        <div style="flex:0 0 70px;">
+          <label for="income-category-icon">Ícone</label>
+          <input type="text" id="income-category-icon" placeholder="➕" maxlength="4">
+        </div>
+        <div>
+          <label for="income-category-name">Nome</label>
+          <input type="text" id="income-category-name" placeholder="Ex: Pensão, Bônus...">
+        </div>
+      </div>
+
+      <button class="btn btn-primary" id="btn-save-income-category">Salvar</button>
+      <button class="btn btn-danger" id="btn-delete-income-category" style="display:none;">Apagar tipo de receita</button>
+    </div>
+  </div>
+
   <!-- ============ MODAL: COMO USAR ============ -->
   <div class="modal-overlay" id="modal-help">
     <div class="modal-sheet">
@@ -440,19 +500,24 @@
       <p class="card-title" style="margin-top:16px;">💬 Posso gastar isso?</p>
       <p class="sub-line">Antes de gastar, simule: informe valor, categoria, forma de pagamento e parcelas. O app compara com o que resta no orçamento daquela categoria este mês e diz se dá para gastar e quanto sobra (ou quanto vai faltar).</p>
 
-      <p class="card-title" style="margin-top:16px;">📅 Contas</p>
-      <p class="sub-line">Cadastre contas fixas (aluguel, internet, assinaturas) com valor e dia de vencimento. O app avisa no Início quando uma conta está vencendo ou atrasada. Toque em "Marcar como paga" para registrar o pagamento como um gasto automaticamente. Toque na conta para editar ou apagar.</p>
+      <p class="card-title" style="margin-top:16px;">🗂️ Cadastro</p>
+      <p class="sub-line">
+        Aqui fica tudo que você configura uma vez e usa no dia a dia:<br><br>
+        <strong>Contas bancárias e carteira:</strong> seus bancos e o dinheiro físico que você tem em casa — o app atualiza o saldo sozinho quando você usa Pix/Débito/Dinheiro num lançamento.<br><br>
+        <strong>Cartões:</strong> cartões de crédito (vencimento da fatura e limite — o disponível é calculado sozinho) e cartões de vale alimentação/refeição (valor que cai por mês e saldo).<br><br>
+        <strong>Categorias de gasto:</strong> as categorias que aparecem ao lançar um gasto. Vêm algumas prontas (Alimentação, Transporte...), mas você pode criar, editar ou apagar as suas (ex: Pet, Filhos).<br><br>
+        <strong>Tipos de receita:</strong> o mesmo, mas para o que você recebe (Salário, Adiantamento, Aluguel recebido, Freelance...).<br><br>
+        <strong>Contas a pagar (vencimentos):</strong> contas fixas (aluguel, internet, assinaturas) com valor e dia de vencimento. O app avisa no Início quando uma está vencendo ou atrasada, e "Marcar como paga" já lança o gasto.
+      </p>
 
       <p class="card-title" style="margin-top:16px;">🎯 Orçamento</p>
-      <p class="sub-line">Defina um limite mensal de gasto para cada categoria. Cada categoria já vem com um percentual sugerido da sua renda líquida, baseado em boas práticas (ex: Moradia ~28%, Alimentação ~14%). Você pode editar esse percentual e tocar em "Usar" para aplicar o valor sugerido como limite.</p>
+      <p class="sub-line">Defina um limite mensal de gasto para cada categoria. Cada categoria já vem com um percentual sugerido da sua renda líquida, baseado em boas práticas (ex: Moradia ~28%, Alimentação ~14%) — editável em Cadastro. Você pode tocar em "Usar" para aplicar o valor sugerido como limite.</p>
 
       <p class="card-title" style="margin-top:16px;">📈 Investir</p>
       <p class="sub-line">Registre aportes e resgates por classe de ativo (Renda Fixa, Ações, FIIs, Cripto, Outros), com liquidez, rentabilidade/condição e vencimento (para renda fixa). O app avisa se sua carteira está muito concentrada em uma classe ou com risco acima do seu perfil.</p>
 
       <p class="card-title" style="margin-top:16px;">☰ Mais</p>
       <p class="sub-line">
-        <strong>Saldos:</strong> cadastre suas contas bancárias e o dinheiro físico que você tem em casa — o app atualiza sozinho quando você usa Pix/Débito/Dinheiro num lançamento.<br><br>
-        <strong>Cartões:</strong> cadastre cartões de crédito (vencimento da fatura e limite — o disponível é calculado sozinho) e cartões de vale alimentação/refeição (valor que cai por mês e saldo).<br><br>
         <strong>Notificações:</strong> ative para receber um aviso no aparelho quando algo vencer hoje (só dispara quando você abre o app, já que é tudo offline).<br><br>
         <strong>Backup:</strong> exporte um arquivo com todos os seus dados e guarde em segurança; importe para restaurar.<br><br>
         <strong>Perfil:</strong> renda bruta/líquida, dependentes, perfil de risco e reserva de emergência — usados para as sugestões de orçamento e investimento.

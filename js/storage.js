@@ -170,6 +170,25 @@ const Storage = {
       writeJSON(DB_KEYS.categories, list);
     }
   },
+  // Edita nome/ícone/percentual; se o nome mudar, propaga para transações, orçamentos e contas já lançados
+  updateCategoryFull(oldName, patch) {
+    const list = Storage.getCategories();
+    const cat = list.find((c) => c.name === oldName);
+    if (!cat) return;
+    const newName = patch.name && patch.name.trim() ? patch.name.trim() : oldName;
+    cat.name = newName;
+    if (patch.icon) cat.icon = patch.icon;
+    if (patch.recommendedPct != null) cat.recommendedPct = patch.recommendedPct;
+    writeJSON(DB_KEYS.categories, list);
+    if (newName !== oldName) {
+      writeJSON(DB_KEYS.transactions, Storage.getTransactions().map((t) => (t.category === oldName ? { ...t, category: newName } : t)));
+      writeJSON(DB_KEYS.budgets, Storage.getBudgets().map((b) => (b.category === oldName ? { ...b, category: newName } : b)));
+      writeJSON(DB_KEYS.bills, Storage.getBills().map((b) => (b.category === oldName ? { ...b, category: newName } : b)));
+    }
+  },
+  deleteCategory(name) {
+    writeJSON(DB_KEYS.categories, Storage.getCategories().filter((c) => c.name !== name));
+  },
 
   // Categorias de receita
   getIncomeCategories() {
@@ -181,6 +200,24 @@ const Storage = {
       list.push({ name, icon: icon || '➕' });
       writeJSON(DB_KEYS.incomeCategories, list);
     }
+  },
+  updateIncomeCategoryFull(oldName, patch) {
+    const list = Storage.getIncomeCategories();
+    const cat = list.find((c) => c.name === oldName);
+    if (!cat) return;
+    const newName = patch.name && patch.name.trim() ? patch.name.trim() : oldName;
+    cat.name = newName;
+    if (patch.icon) cat.icon = patch.icon;
+    writeJSON(DB_KEYS.incomeCategories, list);
+    if (newName !== oldName) {
+      writeJSON(
+        DB_KEYS.transactions,
+        Storage.getTransactions().map((t) => (t.type === 'income' && t.category === oldName ? { ...t, category: newName } : t))
+      );
+    }
+  },
+  deleteIncomeCategory(name) {
+    writeJSON(DB_KEYS.incomeCategories, Storage.getIncomeCategories().filter((c) => c.name !== name));
   },
 
   // Contas a pagar (com dia de vencimento, recorrentes mensalmente)
