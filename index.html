@@ -26,13 +26,29 @@
       <p class="sub-line" id="dash-comparison">—</p>
     </div>
 
+    <button class="btn btn-secondary" id="btn-open-simulate">💬 Posso gastar isso?</button>
+
     <div id="dash-alerts"></div>
+
+    <div class="section-title">Receitas este mês</div>
+    <div class="card">
+      <p class="card-title">Total recebido</p>
+      <p class="big-number" id="dash-total-income" style="font-size:20px;color:var(--success);">R$ 0,00</p>
+      <div id="dash-income-breakdown" style="margin-top:8px;"></div>
+    </div>
 
     <div class="section-title">Orçamento por categoria</div>
     <div class="card" id="dash-budgets"></div>
 
     <div class="section-title">Últimas transações</div>
     <div class="card" id="dash-transactions"></div>
+  </section>
+
+  <!-- ============ CONTAS A PAGAR ============ -->
+  <section class="screen" id="screen-bills">
+    <div id="bills-alerts"></div>
+    <div class="section-title">Contas cadastradas</div>
+    <div class="card" id="bills-list"></div>
   </section>
 
   <!-- ============ ORÇAMENTOS ============ -->
@@ -43,7 +59,7 @@
     </div>
     <div class="card">
       <p class="card-title">Sugestão 50/30/20 (com base na sua renda)</p>
-      <div id="budget-suggestion" class="sub-line">Cadastre sua renda em Perfil para ver a sugestão.</div>
+      <div id="budget-suggestion" class="sub-line">Cadastre sua renda em Mais &gt; Perfil para ver a sugestão.</div>
     </div>
   </section>
 
@@ -60,12 +76,30 @@
     <div class="card" id="inv-list"></div>
   </section>
 
-  <!-- ============ PERFIL ============ -->
-  <section class="screen" id="screen-profile">
+  <!-- ============ MAIS: SALDOS + PERFIL ============ -->
+  <section class="screen" id="screen-more">
+    <div class="section-title">Saldos</div>
+    <div class="card">
+      <p class="card-title">Total em contas e dinheiro físico</p>
+      <p class="big-number" id="accounts-total">R$ 0,00</p>
+    </div>
+    <div class="card" id="accounts-list"></div>
+    <button class="btn btn-secondary" id="btn-add-account">+ Adicionar conta ou carteira</button>
+
+    <div class="section-title">Perfil</div>
     <div class="card">
       <p class="card-title">Seus dados financeiros</p>
-      <label for="profile-income">Renda mensal (R$)</label>
-      <input type="number" id="profile-income" inputmode="decimal" placeholder="0,00">
+      <div class="two-col">
+        <div>
+          <label for="profile-income-gross">Renda bruta mensal (R$)</label>
+          <input type="number" id="profile-income-gross" inputmode="decimal" placeholder="0,00">
+        </div>
+        <div>
+          <label for="profile-income-net">Renda líquida mensal (R$)</label>
+          <input type="number" id="profile-income-net" inputmode="decimal" placeholder="0,00">
+        </div>
+      </div>
+      <p class="sub-line" style="margin-top:2px;">Usamos a renda líquida (o que cai na conta) para calcular metas e sugestões de orçamento.</p>
 
       <label for="profile-dependents">Número de dependentes</label>
       <input type="number" id="profile-dependents" inputmode="numeric" min="0" value="0">
@@ -100,9 +134,10 @@
   <!-- ============ NAV ============ -->
   <nav class="bottom-nav">
     <button class="nav-item active" data-screen="dashboard"><span class="icon">🏠</span>Início</button>
+    <button class="nav-item" data-screen="bills"><span class="icon">📅</span>Contas</button>
     <button class="nav-item" data-screen="budgets"><span class="icon">🎯</span>Orçamento</button>
     <button class="nav-item" data-screen="investments"><span class="icon">📈</span>Investir</button>
-    <button class="nav-item" data-screen="profile"><span class="icon">👤</span>Perfil</button>
+    <button class="nav-item" data-screen="more"><span class="icon">☰</span>Mais</button>
   </nav>
 
   <button class="fab" id="fab-add">+</button>
@@ -131,6 +166,29 @@
 
       <label for="tx-desc">Descrição (opcional)</label>
       <input type="text" id="tx-desc" placeholder="Ex: Supermercado">
+
+      <div id="tx-payment-wrap">
+        <label>Forma de pagamento</label>
+        <div class="chip-list" id="tx-payment-methods"></div>
+
+        <div id="tx-card-fields" style="display:none;">
+          <div class="two-col">
+            <div>
+              <label for="tx-card-name">Cartão</label>
+              <input type="text" id="tx-card-name" placeholder="Ex: Nubank">
+            </div>
+            <div>
+              <label for="tx-installments">Parcelas</label>
+              <input type="number" id="tx-installments" min="1" value="1" inputmode="numeric">
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div id="tx-account-wrap">
+        <label for="tx-account">Conta/Carteira (opcional)</label>
+        <select id="tx-account"></select>
+      </div>
 
       <button class="btn btn-primary" id="btn-save-tx">Salvar</button>
     </div>
@@ -161,7 +219,105 @@
       <label for="inv-date">Data</label>
       <input type="date" id="inv-date">
 
+      <div class="two-col">
+        <div>
+          <label for="inv-liquidity">Liquidez</label>
+          <select id="inv-liquidity"></select>
+        </div>
+        <div>
+          <label for="inv-maturity">Vencimento (opcional)</label>
+          <input type="date" id="inv-maturity">
+        </div>
+      </div>
+
+      <label for="inv-rate">Rentabilidade / condição</label>
+      <input type="text" id="inv-rate" placeholder="Ex: 110% CDI, IPCA+6%...">
+
       <button class="btn btn-primary" id="btn-save-inv">Salvar</button>
+    </div>
+  </div>
+
+  <!-- ============ MODAL: POSSO GASTAR ISSO? ============ -->
+  <div class="modal-overlay" id="modal-simulate">
+    <div class="modal-sheet">
+      <div class="modal-header">
+        <h2>Posso gastar isso?</h2>
+        <button class="close-btn" data-close="modal-simulate">✕</button>
+      </div>
+
+      <label for="sim-amount">Valor (R$)</label>
+      <input type="number" id="sim-amount" inputmode="decimal" placeholder="0,00">
+
+      <label>Categoria</label>
+      <div class="chip-list" id="sim-categories"></div>
+
+      <label>Forma de pagamento</label>
+      <div class="chip-list" id="sim-payment-methods"></div>
+
+      <div id="sim-installments-wrap" style="display:none;">
+        <label for="sim-installments">Vai parcelar? Em quantas vezes</label>
+        <input type="number" id="sim-installments" min="1" value="1" inputmode="numeric">
+      </div>
+
+      <button class="btn btn-primary" id="btn-calc-simulate">Calcular</button>
+
+      <div id="sim-result" style="margin-top:14px;"></div>
+
+      <button class="btn btn-secondary" id="btn-simulate-to-tx" style="display:none;">Registrar esse gasto</button>
+    </div>
+  </div>
+
+  <!-- ============ MODAL: NOVA CONTA A PAGAR ============ -->
+  <div class="modal-overlay" id="modal-bill">
+    <div class="modal-sheet">
+      <div class="modal-header">
+        <h2>Nova conta a pagar</h2>
+        <button class="close-btn" data-close="modal-bill">✕</button>
+      </div>
+
+      <label for="bill-name">Nome</label>
+      <input type="text" id="bill-name" placeholder="Ex: Aluguel, Internet, Cartão...">
+
+      <label>Categoria</label>
+      <div class="chip-list" id="bill-categories"></div>
+
+      <div class="two-col">
+        <div>
+          <label for="bill-amount">Valor (R$)</label>
+          <input type="number" id="bill-amount" inputmode="decimal" placeholder="0,00">
+        </div>
+        <div>
+          <label for="bill-day">Dia do vencimento</label>
+          <input type="number" id="bill-day" min="1" max="31" inputmode="numeric" placeholder="Ex: 10">
+        </div>
+      </div>
+
+      <button class="btn btn-primary" id="btn-save-bill">Salvar</button>
+    </div>
+  </div>
+
+  <!-- ============ MODAL: NOVA CONTA/CARTEIRA ============ -->
+  <div class="modal-overlay" id="modal-account">
+    <div class="modal-sheet">
+      <div class="modal-header">
+        <h2>Nova conta ou carteira</h2>
+        <button class="close-btn" data-close="modal-account">✕</button>
+      </div>
+
+      <label for="account-name">Nome</label>
+      <input type="text" id="account-name" placeholder="Ex: Nubank, Dinheiro em casa...">
+
+      <label for="account-type">Tipo</label>
+      <select id="account-type">
+        <option value="banco">Conta bancária</option>
+        <option value="carteira">Carteira / dinheiro físico</option>
+        <option value="alimentacao">Vale Alimentação/Refeição</option>
+      </select>
+
+      <label for="account-balance">Saldo atual (R$)</label>
+      <input type="number" id="account-balance" inputmode="decimal" placeholder="0,00">
+
+      <button class="btn btn-primary" id="btn-save-account">Salvar</button>
     </div>
   </div>
 
