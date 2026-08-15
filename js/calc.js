@@ -33,6 +33,17 @@ function prevMonthKey(month) {
   return monthKey(d);
 }
 
+function shiftMonth(month, delta) {
+  const [y, m] = month.split('-').map(Number);
+  return monthKey(new Date(y, m - 1 + delta, 1));
+}
+
+function monthLabel(month) {
+  const [y, m] = month.split('-').map(Number);
+  const label = new Date(y, m - 1, 1).toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' });
+  return label.charAt(0).toUpperCase() + label.slice(1);
+}
+
 function fmtBRL(value) {
   return (value || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 }
@@ -76,6 +87,8 @@ const Calc = {
   splitInstallments,
   parseLocalDate,
   toLocalISODate,
+  shiftMonth,
+  monthLabel,
 
   // Alertas de contas a pagar: vencida, vence hoje, ou vence em até 3 dias
   billAlerts(bills, month) {
