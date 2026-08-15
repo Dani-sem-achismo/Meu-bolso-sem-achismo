@@ -8,7 +8,20 @@ const state = {
   invMovement: 'aporte',
   simCategory: null,
   simPayment: 'Dinheiro',
+  hideValues: localStorage.getItem('finapp_hide_values') === '1',
 };
+
+function maskCurrency(value) {
+  return state.hideValues ? '••••••' : Calc.fmtBRL(value);
+}
+
+function toggleHideValues() {
+  state.hideValues = !state.hideValues;
+  localStorage.setItem('finapp_hide_values', state.hideValues ? '1' : '0');
+  document.getElementById('btn-toggle-hide').textContent = state.hideValues ? '🙈' : '👁️';
+  renderAll();
+}
+document.getElementById('btn-toggle-hide').addEventListener('click', toggleHideValues);
 
 const APPBAR_TITLES = {
   dashboard: 'Dashboard',
@@ -576,6 +589,76 @@ document.getElementById('btn-simulate-to-tx').addEventListener('click', () => {
   if (sim) openTxModal(sim);
 });
 
+// -------- Gráficos (SVG inline, sem lib externa) --------
+
+function renderCategoryChart(containerId, totalsMap) {
+  const container = document.getElementById(containerId);
+  const entries = Object.entries(totalsMap)
+    .filter(([, v]) => v > 0)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 6);
+  if (!entries.length) {
+    container.innerHTML = `<div class="empty-state">Sem gastos registrados este mês ainda.</div>`;
+    return;
+  }
+  const max = Math.max(...entries.map(([, v]) => v));
+  container.innerHTML = entries
+    .map(
+      ([cat, val]) => `
+    <div class="cat-row" style="display:block;">
+      <div class="cat-name">${catIcon(cat)} ${cat}</div>
+      <div class="progress-bar" style="margin-top:4px;"><div class="progress-fill status-ok" style="width:${(val / max) * 100}%"></div></div>
+      ${state.hideValues ? '' : `<div class="sub-line" style="margin-top:2px;">${Calc.fmtBRL(val)}</div>`}
+    </div>`
+    )
+    .join('');
+}
+
+function buildTrendData(transactions) {
+  const now = new Date();
+  const months = [];
+  for (let i = 5; i >= 0; i--) {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    const mk = Calc.monthKey(d);
+    months.push({
+      key: mk,
+      label: d.toLocaleDateString('pt-BR', { month: 'short' }).replace('.', ''),
+      gasto: Calc.totalByType(transactions, mk, 'expense'),
+      receita: Calc.totalByType(transactions, mk, 'income'),
+    });
+  }
+  return months;
+}
+
+function renderTrendChart(containerId, months) {
+  const container = document.getElementById(containerId);
+  const max = Math.max(1, ...months.flatMap((m) => [m.gasto, m.receita]));
+  const h = 100;
+  const barW = 12;
+  const gap = 6;
+  const groupW = barW * 2 + gap;
+  const groupGap = 14;
+  const chartW = months.length * (groupW + groupGap);
+
+  const bars = months
+    .map((m, i) => {
+      const x = i * (groupW + groupGap);
+      const gH = Math.max((m.gasto / max) * h, m.gasto > 0 ? 2 : 0);
+      const rH = Math.max((m.receita / max) * h, m.receita > 0 ? 2 : 0);
+      return `
+      <rect x="${x}" y="${h - gH}" width="${barW}" height="${gH}" fill="var(--danger)" rx="2"></rect>
+      <rect x="${x + barW + gap}" y="${h - rH}" width="${barW}" height="${rH}" fill="var(--success)" rx="2"></rect>
+      <text x="${x + groupW / 2}" y="${h + 14}" font-size="9" fill="#6B7280" text-anchor="middle">${m.label}</text>`;
+    })
+    .join('');
+
+  container.innerHTML = `
+    <svg viewBox="0 0 ${chartW} ${h + 20}" style="width:100%;height:130px;display:block;">${bars}</svg>
+    <div style="display:flex;gap:16px;font-size:11px;color:var(--text-secondary);margin-top:4px;">
+      <span>🔴 Gastos</span><span>🟢 Receitas</span>
+    </div>`;
+}
+
 // -------- Render: Dashboard --------
 function renderDashboard() {
   const month = Calc.currentMonthKey();
@@ -583,26 +666,33 @@ function renderDashboard() {
   const budgets = Storage.getBudgetsForMonth(month);
 
   const totalSpent = Calc.totalByType(transactions, month, 'expense');
-  document.getElementById('dash-total-spent').textContent = Calc.fmtBRL(totalSpent);
+  document.getElementById('dash-total-spent').textContent = maskCurrency(totalSpent);
 
   const cmp = Calc.comparisonPrevMonth(transactions, month);
   const cmpEl = document.getElementById('dash-comparison');
   if (cmp.pct === null) {
     cmpEl.textContent = 'Sem dados do mês passado para comparar.';
+  } else if (state.hideValues) {
+    const arrow = cmp.diff >= 0 ? '↑' : '↓';
+    cmpEl.textContent = `${arrow} ${Math.abs(cmp.pct).toFixed(0)}% vs. mês passado`;
   } else {
     const arrow = cmp.diff >= 0 ? '↑' : '↓';
     cmpEl.textContent = `${arrow} ${Math.abs(cmp.pct).toFixed(0)}% vs. mês passado (${Calc.fmtBRL(cmp.passado)})`;
   }
 
+  // Gráficos
+  renderCategoryChart('dash-chart-categories', Calc.totalsByCategory(transactions, month, 'expense'));
+  renderTrendChart('dash-chart-trend', buildTrendData(transactions));
+
   // Receitas do mês (salário + outras fontes)
   const totalIncome = Calc.totalByType(transactions, month, 'income');
-  document.getElementById('dash-total-income').textContent = Calc.fmtBRL(totalIncome);
+  document.getElementById('dash-total-income').textContent = maskCurrency(totalIncome);
   const incomeByCategory = Calc.totalsByCategory(transactions, month, 'income');
   const incomeEntries = Object.entries(incomeByCategory);
   document.getElementById('dash-income-breakdown').innerHTML = incomeEntries.length
     ? incomeEntries
         .sort((a, b) => b[1] - a[1])
-        .map(([cat, val]) => `<div class="cat-row"><div class="cat-name">${catIcon(cat)} ${cat}</div><div class="cat-values">${Calc.fmtBRL(val)}</div></div>`)
+        .map(([cat, val]) => `<div class="cat-row"><div class="cat-name">${catIcon(cat)} ${cat}</div><div class="cat-values">${maskCurrency(val)}</div></div>`)
         .join('')
     : `<div class="empty-state">Nenhuma receita lançada este mês.</div>`;
 
@@ -640,7 +730,7 @@ function renderDashboard() {
         return `
         <div class="cat-row" style="display:block;">
           <div class="cat-name">${catIcon(b.category)} ${b.category}</div>
-          <div class="cat-values">${Calc.fmtBRL(b.spent)} / ${Calc.fmtBRL(b.limitAmount)} (${b.percent.toFixed(0)}%)</div>
+          <div class="cat-values">${maskCurrency(b.spent)} / ${maskCurrency(b.limitAmount)} (${b.percent.toFixed(0)}%)</div>
           <div class="progress-bar"><div class="progress-fill ${statusClass}" style="width:${Math.min(b.percent, 100)}%"></div></div>
         </div>`;
       })
@@ -670,7 +760,7 @@ function renderDashboard() {
             <div class="tx-date">${Calc.parseLocalDate(t.date).toLocaleDateString('pt-BR')}${paymentTag}</div>
           </div>
         </div>
-        <div class="tx-amount ${t.type}">${t.type === 'income' ? '+' : '-'} ${Calc.fmtBRL(t.amount)}</div>
+        <div class="tx-amount ${t.type}">${t.type === 'income' ? '+' : '-'} ${maskCurrency(t.amount)}</div>
       </div>`;
         })
         .join('')
@@ -909,6 +999,7 @@ function checkAndNotifyDueToday() {
 }
 
 // -------- Init --------
+document.getElementById('btn-toggle-hide').textContent = state.hideValues ? '🙈' : '👁️';
 renderAll();
 updateNotifStatus();
 checkAndNotifyDueToday();

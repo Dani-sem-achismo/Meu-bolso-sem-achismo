@@ -28,8 +28,10 @@ const DEFAULT_CATEGORIES = [
 
 const DEFAULT_INCOME_CATEGORIES = [
   { name: 'Salário', icon: '💼' },
+  { name: 'Adiantamento', icon: '💵' },
+  { name: 'Aluguel recebido', icon: '🏘️' },
   { name: 'Freelance/Extra', icon: '🧾' },
-  { name: 'Rendimento de investimento', icon: '📈' },
+  { name: 'Juros/Rendimento de investimento', icon: '📈' },
   { name: 'Reembolso', icon: '↩️' },
   { name: 'Outras receitas', icon: '➕' },
 ];

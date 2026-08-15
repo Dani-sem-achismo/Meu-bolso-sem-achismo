@@ -21,14 +21,25 @@
   <!-- ============ DASHBOARD ============ -->
   <section class="screen active" id="screen-dashboard">
     <div class="card">
-      <p class="card-title">Total gasto este mês</p>
-      <p class="big-number" id="dash-total-spent">R$ 0,00</p>
-      <p class="sub-line" id="dash-comparison">—</p>
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;">
+        <div>
+          <p class="card-title">Total gasto este mês</p>
+          <p class="big-number" id="dash-total-spent">R$ 0,00</p>
+          <p class="sub-line" id="dash-comparison">—</p>
+        </div>
+        <button class="close-btn" id="btn-toggle-hide" style="font-size:22px;" title="Ocultar valores">👁️</button>
+      </div>
     </div>
 
     <button class="btn btn-secondary" id="btn-open-simulate">💬 Posso gastar isso?</button>
 
     <div id="dash-alerts"></div>
+
+    <div class="section-title">Gastos por categoria (este mês)</div>
+    <div class="card" id="dash-chart-categories"></div>
+
+    <div class="section-title">Gastos x receitas (últimos 6 meses)</div>
+    <div class="card" id="dash-chart-trend"></div>
 
     <div class="section-title">Receitas este mês</div>
     <div class="card">
