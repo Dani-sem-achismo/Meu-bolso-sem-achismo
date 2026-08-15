@@ -86,6 +86,11 @@
     <div class="card" id="accounts-list"></div>
     <button class="btn btn-secondary" id="btn-add-account">+ Adicionar conta ou carteira</button>
 
+    <div class="section-title">Cartões</div>
+    <div id="cards-alerts"></div>
+    <div class="card" id="cards-list"></div>
+    <button class="btn btn-secondary" id="btn-add-card">+ Adicionar cartão</button>
+
     <div class="section-title">Perfil</div>
     <div class="card">
       <p class="card-title">Seus dados financeiros</p>
@@ -174,14 +179,23 @@
         <div id="tx-card-fields" style="display:none;">
           <div class="two-col">
             <div>
-              <label for="tx-card-name">Cartão</label>
-              <input type="text" id="tx-card-name" placeholder="Ex: Nubank">
+              <label for="tx-card-select">Cartão de crédito</label>
+              <select id="tx-card-select"></select>
             </div>
             <div>
               <label for="tx-installments">Parcelas</label>
               <input type="number" id="tx-installments" min="1" value="1" inputmode="numeric">
             </div>
           </div>
+          <div id="tx-card-name-wrap" style="display:none;">
+            <label for="tx-card-name">Nome do cartão</label>
+            <input type="text" id="tx-card-name" placeholder="Ex: Nubank">
+          </div>
+        </div>
+
+        <div id="tx-benefit-fields" style="display:none;">
+          <label for="tx-benefit-select">Qual cartão?</label>
+          <select id="tx-benefit-select"></select>
         </div>
       </div>
 
@@ -311,13 +325,56 @@
       <select id="account-type">
         <option value="banco">Conta bancária</option>
         <option value="carteira">Carteira / dinheiro físico</option>
-        <option value="alimentacao">Vale Alimentação/Refeição</option>
       </select>
 
       <label for="account-balance">Saldo atual (R$)</label>
       <input type="number" id="account-balance" inputmode="decimal" placeholder="0,00">
 
       <button class="btn btn-primary" id="btn-save-account">Salvar</button>
+    </div>
+  </div>
+
+  <!-- ============ MODAL: NOVO CARTÃO ============ -->
+  <div class="modal-overlay" id="modal-card">
+    <div class="modal-sheet">
+      <div class="modal-header">
+        <h2>Novo cartão</h2>
+        <button class="close-btn" data-close="modal-card">✕</button>
+      </div>
+
+      <label>Tipo</label>
+      <div class="chip-list" id="card-kind-chips"></div>
+
+      <label for="card-name">Nome</label>
+      <input type="text" id="card-name" placeholder="Ex: Nubank, Sodexo, Ticket...">
+
+      <div id="card-credito-fields">
+        <div class="two-col">
+          <div>
+            <label for="card-due-day">Dia de vencimento da fatura</label>
+            <input type="number" id="card-due-day" min="1" max="31" inputmode="numeric" placeholder="Ex: 10">
+          </div>
+          <div>
+            <label for="card-limit">Limite total (R$)</label>
+            <input type="number" id="card-limit" inputmode="decimal" placeholder="0,00">
+          </div>
+        </div>
+      </div>
+
+      <div id="card-beneficio-fields" style="display:none;">
+        <div class="two-col">
+          <div>
+            <label for="card-deposit">Valor que cai por mês (R$)</label>
+            <input type="number" id="card-deposit" inputmode="decimal" placeholder="0,00">
+          </div>
+          <div>
+            <label for="card-balance">Saldo disponível hoje (R$)</label>
+            <input type="number" id="card-balance" inputmode="decimal" placeholder="0,00">
+          </div>
+        </div>
+      </div>
+
+      <button class="btn btn-primary" id="btn-save-card">Salvar</button>
     </div>
   </div>
 

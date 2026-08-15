@@ -108,6 +108,50 @@ const Calc = {
     return transactions.filter((t) => monthKey(t.date) === month);
   },
 
+  // Saldo em aberto do cartão de crédito: soma das parcelas do mês atual em diante
+  // (meses passados são considerados já pagos/fechados)
+  cardOutstanding(cardId, transactions) {
+    const month = currentMonthKey();
+    return transactions
+      .filter((t) => t.cardId === cardId && t.type === 'expense' && monthKey(t.date) >= month)
+      .reduce((sum, t) => sum + Number(t.amount), 0);
+  },
+
+  cardAvailableLimit(card, transactions) {
+    const outstanding = Calc.cardOutstanding(card.id, transactions);
+    return { outstanding, available: Math.max((card.limit || 0) - outstanding, -Infinity) };
+  },
+
+  // Alertas de vencimento de fatura dos cartões de crédito
+  cardAlerts(cards, transactions) {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const month = currentMonthKey();
+    return cards
+      .filter((c) => c.kind === 'credito' && c.dueDay)
+      .map((c) => {
+        const due = billDueDateForMonth({ dueDay: c.dueDay }, month);
+        const diffDays = Math.round((due - today) / 86400000);
+        const { outstanding } = Calc.cardAvailableLimit(c, transactions);
+        if (outstanding <= 0) return null;
+        let severity = null;
+        let message = null;
+        if (diffDays < 0) {
+          severity = 'critical';
+          message = `Fatura do ${c.name} venceu em ${due.toLocaleDateString('pt-BR')} (${fmtBRL(outstanding)}).`;
+        } else if (diffDays === 0) {
+          severity = 'critical';
+          message = `Fatura do ${c.name} vence hoje (${fmtBRL(outstanding)}).`;
+        } else if (diffDays <= 3) {
+          severity = 'warning';
+          message = `Fatura do ${c.name} vence em ${diffDays} dia${diffDays > 1 ? 's' : ''} (${due.toLocaleDateString('pt-BR')}), ${fmtBRL(outstanding)}.`;
+        }
+        return severity ? { severity, message, cardId: c.id, diffDays } : null;
+      })
+      .filter(Boolean)
+      .sort((a, b) => a.diffDays - b.diffDays);
+  },
+
   totalByType(transactions, month, type) {
     return Calc.transactionsForMonth(transactions, month)
       .filter((t) => t.type === type)
