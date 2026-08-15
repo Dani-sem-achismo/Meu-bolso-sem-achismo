@@ -25,7 +25,7 @@ document.getElementById('btn-toggle-hide').addEventListener('click', toggleHideV
 
 const APPBAR_TITLES = {
   dashboard: 'Dashboard',
-  bills: 'Contas a pagar',
+  cadastro: 'Cadastro',
   budgets: 'Orçamento',
   investments: 'Investimentos',
   more: 'Mais',
@@ -49,7 +49,7 @@ function showScreen(name) {
     el.classList.toggle('active', el.dataset.screen === name);
   });
   document.getElementById('appbar-title').textContent = APPBAR_TITLES[name];
-  document.getElementById('fab-add').style.display = name === 'more' ? 'none' : 'flex';
+  document.getElementById('fab-add').style.display = name === 'more' || name === 'cadastro' ? 'none' : 'flex';
   renderAll();
 }
 
@@ -75,7 +75,6 @@ document.querySelectorAll('.modal-overlay').forEach((overlay) => {
 
 document.getElementById('fab-add').addEventListener('click', () => {
   if (state.screen === 'investments') openInvModal();
-  else if (state.screen === 'bills') openBillModal();
   else openTxModal();
 });
 
@@ -431,6 +430,7 @@ function openBillModal(editId) {
   renderBillCategories();
   openModal('modal-bill');
 }
+document.getElementById('btn-add-bill').addEventListener('click', () => openBillModal());
 
 document.getElementById('btn-delete-bill').addEventListener('click', () => {
   if (!state.editingBillId) return;
@@ -727,6 +727,135 @@ function renderCards() {
 
   listEl.querySelectorAll('[data-edit-card]').forEach((el) => {
     el.addEventListener('click', () => openCardModal(el.dataset.editCard));
+  });
+}
+
+// ==================== CATEGORIAS DE GASTO ====================
+
+function openCategoryModal(name) {
+  state.editingCategoryName = name || null;
+  const deleteBtn = document.getElementById('btn-delete-category');
+  if (name) {
+    const cat = Storage.getCategories().find((c) => c.name === name);
+    if (!cat) return;
+    document.getElementById('category-modal-title').textContent = 'Editar categoria';
+    document.getElementById('category-icon').value = cat.icon;
+    document.getElementById('category-name').value = cat.name;
+    document.getElementById('category-pct').value = cat.recommendedPct != null ? cat.recommendedPct : '';
+    deleteBtn.style.display = 'block';
+  } else {
+    document.getElementById('category-modal-title').textContent = 'Nova categoria de gasto';
+    document.getElementById('category-icon').value = '🏷️';
+    document.getElementById('category-name').value = '';
+    document.getElementById('category-pct').value = 5;
+    deleteBtn.style.display = 'none';
+  }
+  openModal('modal-category');
+}
+document.getElementById('btn-add-category').addEventListener('click', () => openCategoryModal());
+
+document.getElementById('btn-save-category').addEventListener('click', () => {
+  const name = document.getElementById('category-name').value.trim();
+  const icon = document.getElementById('category-icon').value.trim() || '🏷️';
+  const pct = parseFloat(document.getElementById('category-pct').value) || 0;
+  if (!name) {
+    alert('Dê um nome para a categoria.');
+    return;
+  }
+  if (state.editingCategoryName) {
+    Storage.updateCategoryFull(state.editingCategoryName, { name, icon, recommendedPct: pct });
+  } else {
+    Storage.addCategory(name, icon);
+    Storage.setCategoryRecommendedPct(name, pct);
+  }
+  closeModal('modal-category');
+  renderAll();
+});
+
+document.getElementById('btn-delete-category').addEventListener('click', () => {
+  if (!state.editingCategoryName) return;
+  if (!confirm('Apagar esta categoria? Lançamentos já feitos com ela continuam guardados, só não vai mais aparecer para escolher.')) return;
+  Storage.deleteCategory(state.editingCategoryName);
+  closeModal('modal-category');
+  renderAll();
+});
+
+function renderExpenseCategories() {
+  const categories = Storage.getCategories();
+  const listEl = document.getElementById('expense-categories-list');
+  listEl.innerHTML = categories
+    .map(
+      (c) => `
+    <div class="cat-row" data-edit-category="${c.name}" style="cursor:pointer;">
+      <div class="cat-name">${c.icon} ${c.name}</div>
+      <div class="cat-values">${c.recommendedPct != null ? c.recommendedPct + '%' : ''}</div>
+    </div>`
+    )
+    .join('');
+  listEl.querySelectorAll('[data-edit-category]').forEach((el) => {
+    el.addEventListener('click', () => openCategoryModal(el.dataset.editCategory));
+  });
+}
+
+// ==================== TIPOS DE RECEITA ====================
+
+function openIncomeCategoryModal(name) {
+  state.editingIncomeCategoryName = name || null;
+  const deleteBtn = document.getElementById('btn-delete-income-category');
+  if (name) {
+    const cat = Storage.getIncomeCategories().find((c) => c.name === name);
+    if (!cat) return;
+    document.getElementById('income-category-modal-title').textContent = 'Editar tipo de receita';
+    document.getElementById('income-category-icon').value = cat.icon;
+    document.getElementById('income-category-name').value = cat.name;
+    deleteBtn.style.display = 'block';
+  } else {
+    document.getElementById('income-category-modal-title').textContent = 'Novo tipo de receita';
+    document.getElementById('income-category-icon').value = '➕';
+    document.getElementById('income-category-name').value = '';
+    deleteBtn.style.display = 'none';
+  }
+  openModal('modal-income-category');
+}
+document.getElementById('btn-add-income-category').addEventListener('click', () => openIncomeCategoryModal());
+
+document.getElementById('btn-save-income-category').addEventListener('click', () => {
+  const name = document.getElementById('income-category-name').value.trim();
+  const icon = document.getElementById('income-category-icon').value.trim() || '➕';
+  if (!name) {
+    alert('Dê um nome para o tipo de receita.');
+    return;
+  }
+  if (state.editingIncomeCategoryName) {
+    Storage.updateIncomeCategoryFull(state.editingIncomeCategoryName, { name, icon });
+  } else {
+    Storage.addIncomeCategory(name, icon);
+  }
+  closeModal('modal-income-category');
+  renderAll();
+});
+
+document.getElementById('btn-delete-income-category').addEventListener('click', () => {
+  if (!state.editingIncomeCategoryName) return;
+  if (!confirm('Apagar este tipo de receita?')) return;
+  Storage.deleteIncomeCategory(state.editingIncomeCategoryName);
+  closeModal('modal-income-category');
+  renderAll();
+});
+
+function renderIncomeCategories() {
+  const categories = Storage.getIncomeCategories();
+  const listEl = document.getElementById('income-categories-list');
+  listEl.innerHTML = categories
+    .map(
+      (c) => `
+    <div class="cat-row" data-edit-income-category="${c.name}" style="cursor:pointer;">
+      <div class="cat-name">${c.icon} ${c.name}</div>
+    </div>`
+    )
+    .join('');
+  listEl.querySelectorAll('[data-edit-income-category]').forEach((el) => {
+    el.addEventListener('click', () => openIncomeCategoryModal(el.dataset.editIncomeCategory));
   });
 }
 
@@ -1158,12 +1287,16 @@ function renderProfileRecommendation() {
 // -------- Render geral --------
 function renderAll() {
   renderDashboard();
-  if (state.screen === 'bills') renderBills();
   if (state.screen === 'budgets') renderBudgets();
   if (state.screen === 'investments') renderInvestments();
-  if (state.screen === 'more') {
+  if (state.screen === 'cadastro') {
     renderAccounts();
     renderCards();
+    renderExpenseCategories();
+    renderIncomeCategories();
+    renderBills();
+  }
+  if (state.screen === 'more') {
     loadProfileForm();
     renderProfileRecommendation();
   }
