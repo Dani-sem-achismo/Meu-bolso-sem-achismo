@@ -224,6 +224,31 @@ textarea { resize: vertical; min-height: 60px; }
 .list-row-input:last-child { border-bottom: none; }
 .list-row-input input { max-width: 130px; }
 
+.budget-row {
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border);
+}
+.budget-row:last-child { border-bottom: none; }
+.budget-pct-line {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+.budget-pct-line .pct-input {
+  width: 50px;
+  padding: 4px 6px;
+  font-size: 13px;
+}
+.budget-pct-line .chip {
+  padding: 4px 10px;
+  font-size: 12px;
+  margin-left: auto;
+}
+
 .fab {
   position: fixed;
   bottom: 84px;
