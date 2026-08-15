@@ -540,18 +540,31 @@ function renderBudgets() {
   const month = Calc.currentMonthKey();
   const categories = Storage.getCategories();
   const budgets = Storage.getBudgetsForMonth(month);
+  const profile = Storage.getProfile();
+  const income = profile.incomeNet || 0;
   const wrap = document.getElementById('budget-inputs');
   wrap.innerHTML = categories
     .map((c) => {
       const existing = budgets.find((b) => b.category === c.name);
+      const pct = c.recommendedPct != null ? c.recommendedPct : 5;
+      const suggested = income > 0 ? (income * pct) / 100 : null;
       return `
-      <div class="list-row-input">
-        <div class="cat-name">${c.icon} ${c.name}</div>
-        <input type="number" inputmode="decimal" data-budget-cat="${c.name}" placeholder="0,00" value="${existing ? existing.limitAmount : ''}">
+      <div class="budget-row">
+        <div class="list-row-input" style="border-bottom:none;padding:0;">
+          <div class="cat-name">${c.icon} ${c.name}</div>
+          <input type="number" inputmode="decimal" class="budget-limit-input" data-budget-cat="${c.name}" placeholder="0,00" value="${existing ? existing.limitAmount : ''}">
+        </div>
+        <div class="budget-pct-line">
+          <span>Sugerido:</span>
+          <input type="number" class="pct-input" data-pct-cat="${c.name}" value="${pct}" min="0" max="100">
+          <span>% da renda líquida${suggested !== null ? ` (${Calc.fmtBRL(suggested)})` : ''}</span>
+          ${suggested !== null ? `<button class="chip" data-apply-pct="${c.name}" data-suggested="${suggested}">Usar</button>` : ''}
+        </div>
       </div>`;
     })
     .join('');
-  wrap.querySelectorAll('input').forEach((input) => {
+
+  wrap.querySelectorAll('.budget-limit-input').forEach((input) => {
     input.addEventListener('change', () => {
       const val = parseFloat(input.value) || 0;
       Storage.setBudget(input.dataset.budgetCat, month, val);
@@ -559,7 +572,23 @@ function renderBudgets() {
     });
   });
 
-  const profile = Storage.getProfile();
+  wrap.querySelectorAll('.pct-input').forEach((input) => {
+    input.addEventListener('change', () => {
+      const pct = parseFloat(input.value) || 0;
+      Storage.setCategoryRecommendedPct(input.dataset.pctCat, pct);
+      renderBudgets();
+    });
+  });
+
+  wrap.querySelectorAll('[data-apply-pct]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const suggested = Math.round(parseFloat(btn.dataset.suggested) * 100) / 100;
+      Storage.setBudget(btn.dataset.applyPct, month, suggested);
+      renderBudgets();
+      renderDashboard();
+    });
+  });
+
   const sugEl = document.getElementById('budget-suggestion');
   if (profile.incomeNet > 0) {
     const s = Calc.suggestion503020(profile.incomeNet);

@@ -11,15 +11,18 @@ const DB_KEYS = {
   accounts: 'finapp_accounts',
 };
 
+// Percentuais sugeridos por categoria, baseados em benchmarks de planejamento financeiro
+// (perfil moderado): Moradia 25-30%, Alimentação 12-15%, Transporte 10-15%, Saúde 5-7%,
+// Lazer 10-15%, Assinaturas até 3%. Editáveis pelo usuário — são apenas um ponto de partida.
 const DEFAULT_CATEGORIES = [
-  { name: 'Alimentação', icon: '🍔' },
-  { name: 'Transporte', icon: '🚕' },
-  { name: 'Moradia', icon: '🏠' },
-  { name: 'Saúde', icon: '⚕️' },
-  { name: 'Lazer', icon: '🎉' },
-  { name: 'Assinaturas', icon: '📱' },
-  { name: 'Educação', icon: '📚' },
-  { name: 'Outros', icon: '📦' },
+  { name: 'Alimentação', icon: '🍔', recommendedPct: 14 },
+  { name: 'Transporte', icon: '🚕', recommendedPct: 12 },
+  { name: 'Moradia', icon: '🏠', recommendedPct: 28 },
+  { name: 'Saúde', icon: '⚕️', recommendedPct: 6 },
+  { name: 'Lazer', icon: '🎉', recommendedPct: 12 },
+  { name: 'Assinaturas', icon: '📱', recommendedPct: 3 },
+  { name: 'Educação', icon: '📚', recommendedPct: 5 },
+  { name: 'Outros', icon: '📦', recommendedPct: 5 },
 ];
 
 const DEFAULT_INCOME_CATEGORIES = [
@@ -129,7 +132,15 @@ const Storage = {
   addCategory(name, icon) {
     const list = Storage.getCategories();
     if (!list.find((c) => c.name === name)) {
-      list.push({ name, icon: icon || '🏷️' });
+      list.push({ name, icon: icon || '🏷️', recommendedPct: 5 });
+      writeJSON(DB_KEYS.categories, list);
+    }
+  },
+  setCategoryRecommendedPct(name, pct) {
+    const list = Storage.getCategories();
+    const cat = list.find((c) => c.name === name);
+    if (cat) {
+      cat.recommendedPct = pct;
       writeJSON(DB_KEYS.categories, list);
     }
   },
