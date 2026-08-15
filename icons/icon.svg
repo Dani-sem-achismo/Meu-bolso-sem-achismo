@@ -1,4 +1,11 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
-  <rect width="512" height="512" rx="96" fill="#6366F1"/>
-  <text x="50%" y="58%" font-family="Arial, sans-serif" font-size="240" font-weight="700" fill="#FFFFFF" text-anchor="middle">R$</text>
+  <defs>
+    <linearGradient id="brandGradient" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#7C3AED"/>
+      <stop offset="55%" stop-color="#EC4899"/>
+      <stop offset="100%" stop-color="#F97316"/>
+    </linearGradient>
+  </defs>
+  <rect x="8" y="8" width="496" height="496" rx="96" fill="#12102E" stroke="url(#brandGradient)" stroke-width="18"/>
+  <text x="50%" y="60%" font-family="Arial, sans-serif" font-size="220" font-weight="800" fill="#FFFFFF" text-anchor="middle">R$</text>
 </svg>
