@@ -853,8 +853,65 @@ function renderAll() {
   }
 }
 
+// ==================== NOTIFICAÇÕES (vencimento hoje/atrasado) ====================
+// 100% local: dispara uma notificação nativa do aparelho quando o app é aberto
+// e há uma conta ou fatura vencendo hoje ou já atrasada. Sem internet não existe
+// como acordar o app sozinho quando ele está fechado — a notificação só sai
+// quando o usuário abre o app naquele dia.
+
+function updateNotifStatus() {
+  const el = document.getElementById('notif-status');
+  if (!('Notification' in window)) {
+    el.textContent = 'Seu navegador não suporta notificações.';
+    return;
+  }
+  const statusMap = {
+    granted: '✅ Notificações ativadas.',
+    denied: '🚫 Notificações bloqueadas — ative nas configurações do navegador/app.',
+    default: 'Notificações ainda não ativadas.',
+  };
+  el.textContent = statusMap[Notification.permission];
+}
+
+document.getElementById('btn-enable-notif').addEventListener('click', () => {
+  if (!('Notification' in window)) return;
+  Notification.requestPermission().then(() => {
+    updateNotifStatus();
+    checkAndNotifyDueToday();
+  });
+});
+
+function checkAndNotifyDueToday() {
+  if (!('Notification' in window) || Notification.permission !== 'granted') return;
+
+  const today = todayISO();
+  const notifiedKey = `finapp_notified_${today}`;
+  const notified = JSON.parse(localStorage.getItem(notifiedKey) || '[]');
+
+  const month = Calc.currentMonthKey();
+  const dueBills = Calc.billAlerts(Storage.getBills(), month).filter((a) => a.diffDays <= 0 && !notified.includes('bill:' + a.billId));
+  const dueCards = Calc.cardAlerts(Storage.getCards(), Storage.getTransactions()).filter(
+    (a) => a.diffDays <= 0 && !notified.includes('card:' + a.cardId)
+  );
+
+  dueBills.forEach((a) => {
+    new Notification('💰 Conta vencendo hoje', { body: a.message, tag: 'bill-' + a.billId });
+    notified.push('bill:' + a.billId);
+  });
+  dueCards.forEach((a) => {
+    new Notification('💳 Fatura vencendo hoje', { body: a.message, tag: 'card-' + a.cardId });
+    notified.push('card:' + a.cardId);
+  });
+
+  if (dueBills.length || dueCards.length) {
+    localStorage.setItem(notifiedKey, JSON.stringify(notified));
+  }
+}
+
 // -------- Init --------
 renderAll();
+updateNotifStatus();
+checkAndNotifyDueToday();
 
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {

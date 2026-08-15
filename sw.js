@@ -1,4 +1,4 @@
-const CACHE_NAME = 'financeiro-v1';
+const CACHE_NAME = 'financeiro-v2';
 const ASSETS = [
   './',
   './index.html',
