@@ -50,7 +50,7 @@ function toggleHideValues() {
 document.getElementById('btn-toggle-hide').addEventListener('click', toggleHideValues);
 
 const APPBAR_TITLES = {
-  dashboard: 'Dashboard',
+  dashboard: 'Meu Bolso',
   cadastro: 'Cadastro',
   budgets: 'Orçamento',
   investments: 'Investimentos',

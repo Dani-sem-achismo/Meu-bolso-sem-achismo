@@ -1,7 +1,7 @@
 {
-  "name": "Meu Financeiro",
-  "short_name": "Financeiro",
-  "description": "Controle de gastos, orçamento e investimentos",
+  "name": "Meu Bolso Sem Achismo",
+  "short_name": "Meu Bolso",
+  "description": "Controle de gastos, orçamento e investimentos, sem achismo",
   "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",
