@@ -9,6 +9,7 @@ const DB_KEYS = {
   incomeCategories: 'finapp_income_categories',
   bills: 'finapp_bills',
   accounts: 'finapp_accounts',
+  cards: 'finapp_cards',
 };
 
 // Percentuais sugeridos por categoria, baseados em benchmarks de planejamento financeiro
@@ -34,11 +35,15 @@ const DEFAULT_INCOME_CATEGORIES = [
 ];
 
 const ASSET_CLASSES = ['Renda Fixa', 'Ações', 'FIIs', 'Cripto', 'Outros'];
-const PAYMENT_METHODS = ['Dinheiro', 'Pix', 'Débito', 'Cartão de Crédito', 'Cartão Alimentação'];
+const PAYMENT_METHODS = ['Dinheiro', 'Pix', 'Débito', 'Cartão de Crédito', 'Cartão Alimentação', 'Cartão Refeição'];
 const ACCOUNT_TYPES = [
   { value: 'banco', label: 'Conta bancária', icon: '🏦' },
   { value: 'carteira', label: 'Carteira / dinheiro físico', icon: '👛' },
-  { value: 'alimentacao', label: 'Vale Alimentação/Refeição', icon: '🍽️' },
+];
+const CARD_KINDS = [
+  { value: 'credito', label: 'Cartão de Crédito', icon: '💳', payment: 'Cartão de Crédito' },
+  { value: 'alimentacao', label: 'Vale Alimentação', icon: '🛒', payment: 'Cartão Alimentação' },
+  { value: 'refeicao', label: 'Vale Refeição', icon: '🍽️', payment: 'Cartão Refeição' },
 ];
 const LIQUIDITY_OPTIONS = ['Diária', 'No vencimento', 'Outro'];
 
@@ -216,6 +221,37 @@ const Storage = {
     if (acc) {
       acc.balance = Number(acc.balance) + delta;
       writeJSON(DB_KEYS.accounts, list);
+    }
+  },
+
+  // Cartões: crédito (vencimento + limite) e benefício (vale alimentação/refeição, saldo)
+  getCards() {
+    return readJSON(DB_KEYS.cards, []);
+  },
+  addCard(card) {
+    const list = Storage.getCards();
+    const record = { id: uid(), balance: 0, ...card };
+    list.push(record);
+    writeJSON(DB_KEYS.cards, list);
+    return record;
+  },
+  updateCard(id, patch) {
+    const list = Storage.getCards();
+    const idx = list.findIndex((c) => c.id === id);
+    if (idx >= 0) {
+      list[idx] = { ...list[idx], ...patch };
+      writeJSON(DB_KEYS.cards, list);
+    }
+  },
+  deleteCard(id) {
+    writeJSON(DB_KEYS.cards, Storage.getCards().filter((c) => c.id !== id));
+  },
+  adjustCardBalance(id, delta) {
+    const list = Storage.getCards();
+    const card = list.find((c) => c.id === id);
+    if (card) {
+      card.balance = Number(card.balance) + delta;
+      writeJSON(DB_KEYS.cards, list);
     }
   },
 };

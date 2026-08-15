@@ -75,6 +75,26 @@ function renderAccountOptions(selectEl, selectedId) {
     accounts.map((a) => `<option value="${a.id}" ${a.id === selectedId ? 'selected' : ''}>${a.type === 'carteira' ? '👛' : '🏦'} ${a.name} (${Calc.fmtBRL(a.balance)})</option>`).join('');
 }
 
+const PAYMENT_TO_CARD_KIND = { 'Cartão Alimentação': 'alimentacao', 'Cartão Refeição': 'refeicao' };
+const CARD_PAYMENT_METHODS = ['Cartão de Crédito', 'Cartão Alimentação', 'Cartão Refeição'];
+
+function renderCreditCardSelect() {
+  const sel = document.getElementById('tx-card-select');
+  const cards = Storage.getCards().filter((c) => c.kind === 'credito');
+  sel.innerHTML =
+    cards.map((c) => `<option value="${c.id}">${c.name}</option>`).join('') +
+    `<option value="__other__">Outro (não cadastrado)</option>`;
+  document.getElementById('tx-card-name-wrap').style.display = cards.length === 0 ? 'block' : 'none';
+}
+
+function renderBenefitCardSelect(kind) {
+  const sel = document.getElementById('tx-benefit-select');
+  const cards = Storage.getCards().filter((c) => c.kind === kind);
+  sel.innerHTML = cards.length
+    ? cards.map((c) => `<option value="${c.id}">${c.name} (saldo: ${Calc.fmtBRL(c.balance)})</option>`).join('')
+    : `<option value="">Nenhum cartão cadastrado — adicione em Mais</option>`;
+}
+
 function openTxModal(prefill) {
   document.getElementById('tx-amount').value = prefill ? prefill.amount : '';
   document.getElementById('tx-desc').value = '';
@@ -129,12 +149,18 @@ function setTxPayment(method) {
   wrap.querySelectorAll('.chip').forEach((chip) => {
     chip.addEventListener('click', () => setTxPayment(chip.dataset.pm));
   });
-  document.getElementById('tx-card-fields').style.display = method === 'Cartão de Crédito' ? 'block' : 'none';
+
+  const isCredit = method === 'Cartão de Crédito';
+  const benefitKind = PAYMENT_TO_CARD_KIND[method];
+  document.getElementById('tx-card-fields').style.display = isCredit ? 'block' : 'none';
+  document.getElementById('tx-benefit-fields').style.display = benefitKind ? 'block' : 'none';
+  if (isCredit) renderCreditCardSelect();
+  if (benefitKind) renderBenefitCardSelect(benefitKind);
   updateTxAccountVisibility();
 }
 
 function updateTxAccountVisibility() {
-  const showAccount = state.txType === 'income' || state.txPayment !== 'Cartão de Crédito';
+  const showAccount = state.txType === 'income' || !CARD_PAYMENT_METHODS.includes(state.txPayment);
   document.getElementById('tx-account-wrap').style.display = showAccount ? 'block' : 'none';
 }
 
@@ -148,11 +174,16 @@ document.getElementById('btn-save-tx').addEventListener('click', () => {
   const description = document.getElementById('tx-desc').value.trim();
   const category = state.txCategory;
   const accountId = document.getElementById('tx-account').value || null;
-  const isCard = state.txType === 'expense' && state.txPayment === 'Cartão de Crédito';
-  const installments = isCard ? Math.max(1, parseInt(document.getElementById('tx-installments').value) || 1) : 1;
-  const cardName = isCard ? document.getElementById('tx-card-name').value.trim() : null;
+  const isCredit = state.txType === 'expense' && state.txPayment === 'Cartão de Crédito';
+  const benefitKind = state.txType === 'expense' ? PAYMENT_TO_CARD_KIND[state.txPayment] : null;
 
-  if (isCard && installments > 1) {
+  if (isCredit) {
+    const selectVal = document.getElementById('tx-card-select').value;
+    const isOther = selectVal === '__other__' || !selectVal;
+    const cardId = isOther ? null : selectVal;
+    const registeredCard = cardId ? Storage.getCards().find((c) => c.id === cardId) : null;
+    const cardName = registeredCard ? registeredCard.name : document.getElementById('tx-card-name').value.trim();
+    const installments = Math.max(1, parseInt(document.getElementById('tx-installments').value) || 1);
     const parts = Calc.splitInstallments(amount, installments);
     parts.forEach((partAmount, idx) => {
       Storage.addTransaction({
@@ -162,10 +193,26 @@ document.getElementById('btn-save-tx').addEventListener('click', () => {
         date: Calc.addMonthsToDate(date, idx),
         description,
         paymentMethod: state.txPayment,
+        cardId,
         cardName,
         installmentLabel: `${idx + 1}/${installments}`,
       });
     });
+  } else if (benefitKind) {
+    const cardId = document.getElementById('tx-benefit-select').value || null;
+    const registeredCard = cardId ? Storage.getCards().find((c) => c.id === cardId) : null;
+    Storage.addTransaction({
+      type: 'expense',
+      amount,
+      category,
+      date,
+      description,
+      paymentMethod: state.txPayment,
+      cardId,
+      cardName: registeredCard ? registeredCard.name : null,
+      installmentLabel: null,
+    });
+    if (cardId) Storage.adjustCardBalance(cardId, -amount);
   } else {
     Storage.addTransaction({
       type: state.txType,
@@ -174,8 +221,9 @@ document.getElementById('btn-save-tx').addEventListener('click', () => {
       date,
       description,
       paymentMethod: state.txType === 'expense' ? state.txPayment : null,
-      cardName: isCard ? cardName : null,
-      installmentLabel: isCard ? '1/1' : null,
+      cardId: null,
+      cardName: null,
+      installmentLabel: null,
       accountId,
     });
     if (accountId) {
@@ -370,6 +418,96 @@ function renderAccounts() {
     : `<div class="empty-state">Nenhuma conta cadastrada. Adicione seus bancos e o dinheiro que você tem em casa.</div>`;
 }
 
+// ==================== CARTÕES (crédito, alimentação, refeição) ====================
+
+function setCardKind(kind) {
+  state.cardKind = kind;
+  const wrap = document.getElementById('card-kind-chips');
+  wrap.innerHTML = CARD_KINDS.map(
+    (k) => `<div class="chip ${k.value === kind ? 'selected' : ''}" data-kind="${k.value}">${k.icon} ${k.label}</div>`
+  ).join('');
+  wrap.querySelectorAll('.chip').forEach((chip) => {
+    chip.addEventListener('click', () => setCardKind(chip.dataset.kind));
+  });
+  document.getElementById('card-credito-fields').style.display = kind === 'credito' ? 'block' : 'none';
+  document.getElementById('card-beneficio-fields').style.display = kind !== 'credito' ? 'block' : 'none';
+}
+
+function openCardModal() {
+  document.getElementById('card-name').value = '';
+  document.getElementById('card-due-day').value = '';
+  document.getElementById('card-limit').value = '';
+  document.getElementById('card-deposit').value = '';
+  document.getElementById('card-balance').value = '';
+  setCardKind('credito');
+  openModal('modal-card');
+}
+document.getElementById('btn-add-card').addEventListener('click', openCardModal);
+
+document.getElementById('btn-save-card').addEventListener('click', () => {
+  const name = document.getElementById('card-name').value.trim();
+  if (!name) {
+    alert('Dê um nome para o cartão.');
+    return;
+  }
+  if (state.cardKind === 'credito') {
+    const dueDay = parseInt(document.getElementById('card-due-day').value);
+    const limit = parseFloat(document.getElementById('card-limit').value) || 0;
+    if (!dueDay || dueDay < 1 || dueDay > 31) {
+      alert('Informe um dia de vencimento válido (1-31).');
+      return;
+    }
+    Storage.addCard({ name, kind: 'credito', dueDay, limit });
+  } else {
+    const monthlyDeposit = parseFloat(document.getElementById('card-deposit').value) || 0;
+    const balance = parseFloat(document.getElementById('card-balance').value) || 0;
+    Storage.addCard({ name, kind: state.cardKind, monthlyDeposit, balance });
+  }
+  closeModal('modal-card');
+  renderAll();
+});
+
+function renderCards() {
+  const cards = Storage.getCards();
+  const transactions = Storage.getTransactions();
+
+  const alerts = Calc.cardAlerts(cards, transactions);
+  document.getElementById('cards-alerts').innerHTML = alerts.map((a) => `<div class="alert ${a.severity}">${a.message}</div>`).join('');
+
+  const listEl = document.getElementById('cards-list');
+  if (cards.length === 0) {
+    listEl.innerHTML = `<div class="empty-state">Nenhum cartão cadastrado. Adicione seus cartões de crédito e vale alimentação/refeição.</div>`;
+    return;
+  }
+  listEl.innerHTML = cards
+    .map((c) => {
+      const kindInfo = CARD_KINDS.find((k) => k.value === c.kind);
+      if (c.kind === 'credito') {
+        const { outstanding, available } = Calc.cardAvailableLimit(c, transactions);
+        const pct = c.limit > 0 ? (outstanding / c.limit) * 100 : 0;
+        const statusClass = pct > 100 ? 'status-ultrapassado' : pct >= 80 ? 'status-aviso' : 'status-ok';
+        return `
+        <div class="cat-row" style="display:block;">
+          <div class="cat-name">${kindInfo.icon} ${c.name}</div>
+          <div class="cat-values">Vence dia ${c.dueDay} · usado ${Calc.fmtBRL(outstanding)} / ${Calc.fmtBRL(c.limit)} · disponível ${Calc.fmtBRL(available)}</div>
+          <div class="progress-bar"><div class="progress-fill ${statusClass}" style="width:${Math.min(Math.max(pct, 0), 100)}%"></div></div>
+        </div>`;
+      }
+      return `
+      <div class="tx-item">
+        <div class="tx-left">
+          <div class="tx-icon">${kindInfo.icon}</div>
+          <div>
+            <div class="tx-desc">${c.name}</div>
+            <div class="tx-date">${kindInfo.label}${c.monthlyDeposit ? ' · cai ' + Calc.fmtBRL(c.monthlyDeposit) + '/mês' : ''}</div>
+          </div>
+        </div>
+        <div class="tx-amount income">${Calc.fmtBRL(c.balance)}</div>
+      </div>`;
+    })
+    .join('');
+}
+
 // ==================== POSSO GASTAR ISSO? (simulador) ====================
 
 document.getElementById('btn-open-simulate').addEventListener('click', openSimulateModal);
@@ -468,9 +606,13 @@ function renderDashboard() {
         .join('')
     : `<div class="empty-state">Nenhuma receita lançada este mês.</div>`;
 
-  // Alertas: orçamento estourando + contas a vencer
+  // Alertas: orçamento estourando + contas a vencer + faturas de cartão a vencer
   const budgetStatuses = Calc.budgetStatus(budgets, transactions, month);
-  const alerts = [...Calc.billAlerts(Storage.getBills(), month), ...Calc.budgetAlerts(budgetStatuses)];
+  const alerts = [
+    ...Calc.billAlerts(Storage.getBills(), month),
+    ...Calc.cardAlerts(Storage.getCards(), transactions),
+    ...Calc.budgetAlerts(budgetStatuses),
+  ];
   const projection = Calc.projectionEndOfMonth(transactions, month);
   if (projection > totalSpent * 1.001 && budgets.length > 0) {
     const totalBudget = budgets.reduce((s, b) => s + b.limitAmount, 0);
@@ -705,6 +847,7 @@ function renderAll() {
   if (state.screen === 'investments') renderInvestments();
   if (state.screen === 'more') {
     renderAccounts();
+    renderCards();
     loadProfileForm();
     renderProfileRecommendation();
   }
