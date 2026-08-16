@@ -552,6 +552,13 @@ document.getElementById('btn-delete-inv').addEventListener('click', async () => 
 function openBillModal(editId) {
   state.editingBillId = editId || null;
   const deleteBtn = document.getElementById('btn-delete-bill');
+
+  const classSel = document.getElementById('bill-inv-class');
+  classSel.innerHTML = ASSET_CLASSES.map((c) => `<option value="${c}">${c}</option>`).join('');
+  const liqSel = document.getElementById('bill-inv-liquidity');
+  liqSel.innerHTML = LIQUIDITY_OPTIONS.map((l) => `<option value="${l}">${l}</option>`).join('');
+
+  const isInvCheckbox = document.getElementById('bill-is-investment');
   if (editId) {
     const bill = Storage.getBills().find((b) => b.id === editId);
     if (!bill) return;
@@ -560,6 +567,11 @@ function openBillModal(editId) {
     document.getElementById('bill-amount').value = bill.amount;
     document.getElementById('bill-day').value = bill.dueDay;
     state.billCategory = bill.category;
+    isInvCheckbox.checked = !!bill.isInvestment;
+    classSel.value = bill.invClass || ASSET_CLASSES[0];
+    document.getElementById('bill-inv-broker').value = bill.invBroker || '';
+    liqSel.value = bill.invLiquidity || 'Diária';
+    document.getElementById('bill-inv-maturity').value = bill.invMaturity || '';
     deleteBtn.style.display = 'block';
   } else {
     document.getElementById('bill-modal-title').textContent = 'Nova conta a pagar';
@@ -567,12 +579,22 @@ function openBillModal(editId) {
     document.getElementById('bill-amount').value = '';
     document.getElementById('bill-day').value = '';
     state.billCategory = Storage.getCategories()[0].name;
+    isInvCheckbox.checked = false;
+    classSel.value = ASSET_CLASSES[0];
+    document.getElementById('bill-inv-broker').value = '';
+    liqSel.value = 'Diária';
+    document.getElementById('bill-inv-maturity').value = '';
     deleteBtn.style.display = 'none';
   }
+  document.getElementById('bill-investment-fields').style.display = isInvCheckbox.checked ? 'block' : 'none';
   renderBillCategories();
   openModal('modal-bill');
 }
 document.getElementById('btn-add-bill').addEventListener('click', () => openBillModal());
+
+document.getElementById('bill-is-investment').addEventListener('change', (e) => {
+  document.getElementById('bill-investment-fields').style.display = e.target.checked ? 'block' : 'none';
+});
 
 document.getElementById('btn-delete-bill').addEventListener('click', async () => {
   if (!state.editingBillId) return;
@@ -605,10 +627,22 @@ document.getElementById('btn-save-bill').addEventListener('click', async () => {
     await appAlert('Preencha nome, valor e um dia de vencimento válido (1-31).');
     return;
   }
+  const isInvestment = document.getElementById('bill-is-investment').checked;
+  const patch = {
+    name,
+    amount,
+    dueDay,
+    category: state.billCategory,
+    isInvestment,
+    invClass: isInvestment ? document.getElementById('bill-inv-class').value : null,
+    invBroker: isInvestment ? document.getElementById('bill-inv-broker').value.trim() : null,
+    invLiquidity: isInvestment ? document.getElementById('bill-inv-liquidity').value : null,
+    invMaturity: isInvestment ? document.getElementById('bill-inv-maturity').value || null : null,
+  };
   if (state.editingBillId) {
-    Storage.updateBill(state.editingBillId, { name, amount, dueDay, category: state.billCategory });
+    Storage.updateBill(state.editingBillId, patch);
   } else {
-    Storage.addBill({ name, amount, dueDay, category: state.billCategory });
+    Storage.addBill(patch);
   }
   closeModal('modal-bill');
   renderAll();
@@ -636,9 +670,9 @@ function renderBills() {
       return `
       <div class="tx-item">
         <div class="tx-left" data-edit-bill="${b.id}" style="cursor:pointer;">
-          <div class="tx-icon">${catIcon(b.category)}</div>
+          <div class="tx-icon">${b.isInvestment ? '📈' : catIcon(b.category)}</div>
           <div>
-            <div class="tx-desc">${b.name}</div>
+            <div class="tx-desc">${b.name}${b.isInvestment ? ' · aporte' : ''}</div>
             <div class="tx-date">Vence dia ${b.dueDay} (${due.toLocaleDateString('pt-BR')}) ${paid ? '· ✅ paga este mês' : ''}</div>
           </div>
         </div>
@@ -668,14 +702,29 @@ function payBill(billId) {
   const month = Calc.currentMonthKey();
   if (bill.paidMonths.includes(month)) return;
   Storage.markBillPaid(bill.id, month);
-  Storage.addTransaction({
-    type: 'expense',
-    amount: bill.amount,
-    category: bill.category,
-    date: todayISO(),
-    description: `Conta: ${bill.name}`,
-    paymentMethod: null,
-  });
+  if (bill.isInvestment) {
+    Storage.addInvestment({
+      amount: bill.amount,
+      assetClass: bill.invClass || 'Renda Fixa',
+      name: bill.name,
+      broker: bill.invBroker || '',
+      date: todayISO(),
+      movement: 'aporte',
+      liquidity: bill.invLiquidity || 'Diária',
+      rate: '',
+      maturity: bill.invMaturity || null,
+      currency: 'BRL',
+    });
+  } else {
+    Storage.addTransaction({
+      type: 'expense',
+      amount: bill.amount,
+      category: bill.category,
+      date: todayISO(),
+      description: `Conta: ${bill.name}`,
+      paymentMethod: null,
+    });
+  }
   renderAll();
 }
 
@@ -1685,6 +1734,20 @@ function renderInvestments() {
     ? brokerEntries
         .sort((a, b) => b[1] - a[1])
         .map(([broker, val]) => `<div class="cat-row"><div class="cat-name">${broker}</div><div class="cat-values">${Calc.fmtBRL(val)}</div></div>`)
+        .join('')
+    : `<div class="empty-state">Nenhum investimento em R$ registrado ainda.</div>`;
+
+  const byName = Calc.investmentSummaryByName(investments);
+  const nameEntries = Object.entries(byName).filter(([, v]) => v.total > 0);
+  document.getElementById('inv-by-name').innerHTML = nameEntries.length
+    ? nameEntries
+        .sort((a, b) => b[1].total - a[1].total)
+        .map(([name, v]) => {
+          const sub = [v.count > 1 ? `${v.count} aportes` : null, v.maturity ? `venc. ${Calc.parseLocalDate(v.maturity).toLocaleDateString('pt-BR')}` : null]
+            .filter(Boolean)
+            .join(' · ');
+          return `<div class="cat-row" style="display:block;"><div class="cat-name">${name}</div><div class="cat-values">${Calc.fmtBRL(v.total)}</div>${sub ? `<div class="sub-line">${sub}</div>` : ''}</div>`;
+        })
         .join('')
     : `<div class="empty-state">Nenhum investimento em R$ registrado ainda.</div>`;
 

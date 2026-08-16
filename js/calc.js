@@ -280,6 +280,24 @@ const Calc = {
     return { byBroker, total };
   },
 
+  // Agrupa por nome do ativo (soma aportes recorrentes do mesmo investimento, ex: previdência mensal)
+  investmentSummaryByName(investments, currency = 'BRL') {
+    const byName = {};
+    for (const inv of investments) {
+      if ((inv.currency || 'BRL') !== currency) continue;
+      const signal = inv.movement === 'resgate' ? -1 : 1;
+      const val = Number(inv.amount) * signal;
+      const name = inv.name && inv.name.trim() ? inv.name.trim() : inv.assetClass;
+      if (!byName[name]) byName[name] = { total: 0, count: 0, assetClass: inv.assetClass, maturity: inv.maturity || null };
+      byName[name].total += val;
+      byName[name].count += 1;
+      if (inv.maturity && (!byName[name].maturity || inv.maturity > byName[name].maturity)) {
+        byName[name].maturity = inv.maturity;
+      }
+    }
+    return byName;
+  },
+
   // Total investido por moeda, sem conversão (ex: R$ 12.000 + US$ 1.200 + ₿ 0,05, cada um separado)
   investmentTotalsByCurrency(investments) {
     const map = {};
