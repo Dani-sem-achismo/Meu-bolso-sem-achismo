@@ -1489,9 +1489,15 @@ function renderOnboarding() {
   document.querySelectorAll('[data-onboarding-action]').forEach((el) => {
     el.addEventListener('click', () => {
       const action = el.dataset.onboardingAction;
-      if (action === 'profile') showScreen('more');
-      else if (action === 'cadastro') showScreen('more');
-      else if (action === 'tx') openTxModal();
+      if (action === 'profile') {
+        showScreen('more');
+        document.getElementById('section-profile').scrollIntoView({ behavior: 'smooth', block: 'start' });
+      } else if (action === 'cadastro') {
+        showScreen('more');
+        document.getElementById('section-accounts').scrollIntoView({ behavior: 'smooth', block: 'start' });
+      } else if (action === 'tx') {
+        openTxModal();
+      }
     });
   });
 }
