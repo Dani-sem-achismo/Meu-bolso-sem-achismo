@@ -93,6 +93,7 @@ document.getElementById('btn-toggle-hide').addEventListener('click', toggleHideV
 
 const APPBAR_TITLES = {
   dashboard: 'Meu Bolso Sem Achismo',
+  analysis: 'Análise detalhada',
   budgets: 'Orçamento',
   investments: 'Investimentos',
   more: 'Mais',
@@ -123,6 +124,9 @@ function showScreen(name) {
 document.querySelectorAll('.nav-item').forEach((btn) => {
   btn.addEventListener('click', () => showScreen(btn.dataset.screen));
 });
+
+document.getElementById('btn-open-analysis').addEventListener('click', () => showScreen('analysis'));
+document.getElementById('btn-analysis-back').addEventListener('click', () => showScreen('dashboard'));
 
 // -------- Modais --------
 function openModal(id) {
@@ -1513,6 +1517,10 @@ function renderDashboard() {
   // Receitas do mês (salário + outras fontes)
   const totalIncome = Calc.totalByType(transactions, month, 'income');
   document.getElementById('dash-total-income').textContent = maskCurrency(totalIncome);
+  const availableEl = document.getElementById('dash-available');
+  const available = totalIncome - totalSpent;
+  availableEl.textContent = maskCurrency(available);
+  availableEl.style.color = available < 0 ? 'var(--danger)' : 'var(--text)';
   const incomeByCategory = Calc.totalsByCategory(transactions, month, 'income');
   const incomeEntries = Object.entries(incomeByCategory);
   document.getElementById('dash-income-breakdown').innerHTML = incomeEntries.length
