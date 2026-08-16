@@ -164,6 +164,8 @@
     <div class="card" id="inv-allocation"></div>
     <div class="section-title">Por corretora (R$)</div>
     <div class="card" id="inv-by-broker"></div>
+    <div class="section-title">Por investimento (R$)</div>
+    <div class="card" id="inv-by-name"></div>
     <div class="section-title">Aportes e resgates</div>
     <div class="card" id="inv-list"></div>
   </section>
@@ -455,6 +457,30 @@
         </div>
       </div>
 
+      <label style="display:flex;align-items:center;gap:8px;margin-top:16px;cursor:pointer;">
+        <input type="checkbox" id="bill-is-investment" style="width:auto;">
+        <span style="font-size:13px;color:var(--text-secondary);">Esse pagamento é um aporte de investimento (ex: previdência, poupança programada)</span>
+      </label>
+      <div id="bill-investment-fields" style="display:none;">
+        <label for="bill-inv-class">Classe do investimento</label>
+        <select id="bill-inv-class"></select>
+
+        <label for="bill-inv-broker">Corretora (opcional)</label>
+        <input type="text" id="bill-inv-broker" placeholder="Ex: Binance, XP, Rico...">
+
+        <div class="two-col">
+          <div>
+            <label for="bill-inv-liquidity">Liquidez</label>
+            <select id="bill-inv-liquidity"></select>
+          </div>
+          <div>
+            <label for="bill-inv-maturity">Vencimento (opcional)</label>
+            <input type="date" id="bill-inv-maturity">
+          </div>
+        </div>
+        <p class="sub-line">Ao marcar essa conta como paga, o valor entra automaticamente como um aporte na tela Investir, em vez de virar uma despesa comum.</p>
+      </div>
+
       <button class="btn btn-primary" id="btn-save-bill">Salvar</button>
       <button class="btn btn-danger" id="btn-delete-bill" style="display:none;">Apagar conta</button>
     </div>
@@ -732,14 +758,14 @@
         <strong>Categorias de gasto:</strong> as categorias que aparecem ao lançar um gasto. Vêm algumas prontas (Alimentação, Transporte...), mas você pode criar, editar ou apagar as suas (ex: Pet, Filhos).<br><br>
         <strong>Tipos de receita:</strong> o mesmo, mas para o que você recebe (Salário, Adiantamento, Aluguel recebido, Freelance...).<br><br>
         <strong>Moedas:</strong> por padrão só R$, mas você pode adicionar outras (dólar, bitcoin, o que quiser). Elas não se convertem entre si — cada uma soma separada (ex: R$ 800 + US$ 50, nunca vira um número só). Cartões de crédito/benefício continuam sempre em R$; dinheiro, Pix, débito, receitas, contas e investimentos podem usar qualquer moeda cadastrada.<br><br>
-        <strong>Contas a pagar (vencimentos):</strong> contas fixas (aluguel, internet, assinaturas) com valor e dia de vencimento. O app avisa no Início quando uma está vencendo ou atrasada, e "Marcar como paga" já lança o gasto.
+        <strong>Contas a pagar (vencimentos):</strong> contas fixas (aluguel, internet, assinaturas) com valor e dia de vencimento. O app avisa no Início quando uma está vencendo ou atrasada, e "Marcar como paga" já lança o gasto. Se marcar a opção "Esse pagamento é um aporte de investimento" (ex: previdência privada, poupança programada), ao pagar o valor entra automaticamente como aporte na tela Investir em vez de virar um gasto — ótimo pra quem investe todo mês no mesmo lugar.
       </p>
 
       <p class="card-title" style="margin-top:16px;">🎯 Orçamento</p>
       <p class="sub-line">Defina um limite mensal de gasto para cada categoria — também navegável por mês. Cada categoria já vem com um percentual sugerido da sua renda líquida, baseado em boas práticas (ex: Moradia ~28%, Alimentação ~14%) — editável em Cadastro. Você pode tocar em "Usar" para aplicar o valor sugerido como limite.</p>
 
       <p class="card-title" style="margin-top:16px;">📈 Investir</p>
-      <p class="sub-line">Registre aportes e resgates por classe de ativo (Renda Fixa, Ações, FIIs, Cripto, Outros), com liquidez, rentabilidade/condição e vencimento (para renda fixa). O app avisa se sua carteira está muito concentrada em uma classe ou com risco acima do seu perfil.</p>
+      <p class="sub-line">Registre aportes e resgates por classe de ativo (Renda Fixa, Ações, FIIs, Cripto, Outros), com nome, corretora, liquidez, rentabilidade/condição e vencimento (para renda fixa). Use o mesmo nome em todo aporte de um investimento recorrente (ex: "Previdência XP") para somar tudo na seção "Por investimento". O app avisa se sua carteira está muito concentrada em uma classe ou com risco acima do seu perfil.</p>
 
       <p class="card-title" style="margin-top:16px;">☰ Mais</p>
       <p class="sub-line">
