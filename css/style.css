@@ -148,6 +148,7 @@ html, body {
 .tx-amount { font-size: 14px; font-weight: 600; }
 .tx-amount.income { color: var(--success); }
 .tx-amount.expense { color: var(--text); }
+.tx-amount.transfer { color: var(--text-secondary); }
 
 .alert {
   border-radius: 10px;

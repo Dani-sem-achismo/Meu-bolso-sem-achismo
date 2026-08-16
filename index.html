@@ -507,6 +507,32 @@
     </div>
   </div>
 
+  <!-- ============ MODAL: PAGAR FATURA DO CARTÃO ============ -->
+  <div class="modal-overlay" id="modal-pay-card">
+    <div class="modal-sheet">
+      <div class="modal-header">
+        <h2>Marcar fatura como paga</h2>
+        <button class="close-btn" data-close="modal-pay-card">✕</button>
+      </div>
+
+      <p class="card-title" id="pay-card-name" style="font-size:16px;font-weight:600;color:var(--text);">—</p>
+      <p class="sub-line" id="pay-card-outstanding">—</p>
+
+      <label for="pay-card-account">De qual conta saiu o pagamento?</label>
+      <select id="pay-card-account"></select>
+
+      <label for="pay-card-amount">Valor pago (R$)</label>
+      <input type="number" id="pay-card-amount" inputmode="decimal" placeholder="0,00">
+
+      <label for="pay-card-date">Data</label>
+      <input type="date" id="pay-card-date">
+
+      <p class="sub-line" style="margin-top:8px;">Isso só desconta do saldo da conta escolhida — as compras já foram contadas nas categorias quando você lançou, então isso não soma de novo no seu total de gastos.</p>
+
+      <button class="btn btn-primary" id="btn-save-pay-card">Confirmar pagamento</button>
+    </div>
+  </div>
+
   <!-- ============ MODAL: CATEGORIA DE GASTO ============ -->
   <div class="modal-overlay" id="modal-category">
     <div class="modal-sheet">
@@ -644,7 +670,7 @@
       <p class="sub-line">
         Aqui fica tudo que você configura uma vez e usa no dia a dia:<br><br>
         <strong>Contas bancárias e carteira:</strong> seus bancos e o dinheiro físico que você tem em casa — o app atualiza o saldo sozinho quando você usa Pix/Débito/Dinheiro num lançamento.<br><br>
-        <strong>Cartões:</strong> cartões de crédito (vencimento da fatura e limite — o disponível é calculado sozinho) e cartões de vale alimentação/refeição (valor que cai por mês e saldo).<br><br>
+        <strong>Cartões:</strong> cartões de crédito (vencimento da fatura e limite — o disponível é calculado sozinho) e cartões de vale alimentação/refeição (valor que cai por mês e saldo). Quando pagar a fatura, toque em "Marcar fatura como paga" e escolha de qual conta saiu o dinheiro — isso desconta do saldo da conta, mas não soma de novo no seu total de gastos (as compras já foram contadas quando você lançou).<br><br>
         <strong>Categorias de gasto:</strong> as categorias que aparecem ao lançar um gasto. Vêm algumas prontas (Alimentação, Transporte...), mas você pode criar, editar ou apagar as suas (ex: Pet, Filhos).<br><br>
         <strong>Tipos de receita:</strong> o mesmo, mas para o que você recebe (Salário, Adiantamento, Aluguel recebido, Freelance...).<br><br>
         <strong>Moedas:</strong> por padrão só R$, mas você pode adicionar outras (dólar, bitcoin, o que quiser). Elas não se convertem entre si — cada uma soma separada (ex: R$ 800 + US$ 50, nunca vira um número só). Cartões de crédito/benefício continuam sempre em R$; dinheiro, Pix, débito, receitas, contas e investimentos podem usar qualquer moeda cadastrada.<br><br>
