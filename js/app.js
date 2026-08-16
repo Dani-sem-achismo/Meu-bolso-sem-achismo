@@ -94,6 +94,7 @@ document.getElementById('btn-toggle-hide').addEventListener('click', toggleHideV
 const APPBAR_TITLES = {
   dashboard: 'Meu Bolso Sem Achismo',
   analysis: 'Análise detalhada',
+  bills: 'Contas a pagar',
   budgets: 'Orçamento',
   investments: 'Investimentos',
   more: 'Mais',
@@ -127,11 +128,6 @@ document.querySelectorAll('.nav-item').forEach((btn) => {
 
 document.getElementById('btn-open-analysis').addEventListener('click', () => showScreen('analysis'));
 document.getElementById('btn-analysis-back').addEventListener('click', () => showScreen('dashboard'));
-
-document.getElementById('btn-open-bills').addEventListener('click', () => {
-  showScreen('more');
-  document.getElementById('section-bills').scrollIntoView({ behavior: 'smooth', block: 'start' });
-});
 
 // -------- Modais --------
 function openModal(id) {
@@ -1883,6 +1879,10 @@ function renderProfileRecommendation() {
 function renderAll() {
   renderMonthNav();
   renderDashboard();
+  if (state.screen === 'bills') {
+    renderBills();
+    renderCardBillsSummary();
+  }
   if (state.screen === 'budgets') renderBudgets();
   if (state.screen === 'investments') renderInvestments();
   if (state.screen === 'more') {
@@ -1891,11 +1891,47 @@ function renderAll() {
     renderExpenseCategories();
     renderIncomeCategories();
     renderCurrenciesList();
-    renderBills();
     loadProfileForm();
     renderProfileRecommendation();
     renderPinStatus();
   }
+}
+
+function renderCardBillsSummary() {
+  const cards = Storage.getCards().filter((c) => c.kind === 'credito');
+  const transactions = Storage.getTransactions();
+
+  const alerts = Calc.cardAlerts(cards, transactions);
+  document.getElementById('card-bills-alerts').innerHTML = alerts.map((a) => `<div class="alert ${a.severity}">${a.message}</div>`).join('');
+
+  const listEl = document.getElementById('card-bills-list');
+  if (cards.length === 0) {
+    listEl.innerHTML = `<div class="empty-state">Nenhum cartão de crédito cadastrado. Adicione em Mais.</div>`;
+    return;
+  }
+  listEl.innerHTML = cards
+    .map((c) => {
+      const { outstanding } = Calc.cardAvailableLimit(c, transactions);
+      return `
+      <div class="tx-item">
+        <div class="tx-left">
+          <div class="tx-icon">💳</div>
+          <div>
+            <div class="tx-desc">${c.name}</div>
+            <div class="tx-date">Vence dia ${c.dueDay}</div>
+          </div>
+        </div>
+        <div style="text-align:right;">
+          <div class="tx-amount expense">${maskCurrency(outstanding)}</div>
+          ${outstanding > 0 ? `<button class="chip" style="margin-top:4px;" data-pay-card-bill="${c.id}">Marcar como paga</button>` : ''}
+        </div>
+      </div>`;
+    })
+    .join('');
+
+  listEl.querySelectorAll('[data-pay-card-bill]').forEach((btn) => {
+    btn.addEventListener('click', () => openPayCardModal(btn.dataset.payCardBill));
+  });
 }
 
 // ==================== NOTIFICAÇÕES (vencimento hoje/atrasado) ====================
@@ -1982,13 +2018,13 @@ async function checkAndNotifyDueToday() {
 function handleNotificationAction({ action, kind, id }) {
   if (!kind || !id) return;
   if (kind === 'bill' && action === 'pay') {
-    showScreen('more');
+    showScreen('bills');
     openPayBillModal(id);
   } else if (kind === 'card' && action === 'pay') {
-    showScreen('more');
+    showScreen('bills');
     openPayCardModal(id);
   } else if (kind === 'bill' || kind === 'card') {
-    showScreen('more');
+    showScreen('bills');
   }
 }
 
