@@ -93,7 +93,6 @@ document.getElementById('btn-toggle-hide').addEventListener('click', toggleHideV
 
 const APPBAR_TITLES = {
   dashboard: 'Meu Bolso Sem Achismo',
-  cadastro: 'Cadastro',
   budgets: 'Orçamento',
   investments: 'Investimentos',
   more: 'Mais',
@@ -117,7 +116,7 @@ function showScreen(name) {
     el.classList.toggle('active', el.dataset.screen === name);
   });
   document.getElementById('appbar-title').textContent = APPBAR_TITLES[name];
-  document.getElementById('fab-add').style.display = name === 'more' || name === 'cadastro' ? 'none' : 'flex';
+  document.getElementById('fab-add').style.display = name === 'more' ? 'none' : 'flex';
   renderAll();
 }
 
@@ -982,7 +981,7 @@ function openPayCardModal(cardId) {
   const brlAccounts = Storage.getAccounts().filter((a) => (a.currency || 'BRL') === 'BRL');
   accSel.innerHTML = brlAccounts.length
     ? brlAccounts.map((a) => `<option value="${a.id}">${a.type === 'carteira' ? '👛' : '🏦'} ${a.name} (${Calc.fmtBRL(a.balance)})</option>`).join('')
-    : `<option value="">Nenhuma conta cadastrada — adicione em Cadastro</option>`;
+    : `<option value="">Nenhuma conta cadastrada — adicione em Mais</option>`;
   openModal('modal-pay-card');
 }
 
@@ -1461,7 +1460,7 @@ function renderOnboarding() {
     el.addEventListener('click', () => {
       const action = el.dataset.onboardingAction;
       if (action === 'profile') showScreen('more');
-      else if (action === 'cadastro') showScreen('cadastro');
+      else if (action === 'cadastro') showScreen('more');
       else if (action === 'tx') openTxModal();
     });
   });
@@ -1839,15 +1838,13 @@ function renderAll() {
   renderDashboard();
   if (state.screen === 'budgets') renderBudgets();
   if (state.screen === 'investments') renderInvestments();
-  if (state.screen === 'cadastro') {
+  if (state.screen === 'more') {
     renderAccounts();
     renderCards();
     renderExpenseCategories();
     renderIncomeCategories();
     renderCurrenciesList();
     renderBills();
-  }
-  if (state.screen === 'more') {
     loadProfileForm();
     renderProfileRecommendation();
     renderPinStatus();
@@ -1939,12 +1936,12 @@ function handleNotificationAction({ action, kind, id }) {
   if (!kind || !id) return;
   if (kind === 'bill' && action === 'pay') {
     payBill(id);
-    showScreen('cadastro');
+    showScreen('more');
   } else if (kind === 'card' && action === 'pay') {
-    showScreen('cadastro');
+    showScreen('more');
     openPayCardModal(id);
   } else if (kind === 'bill' || kind === 'card') {
-    showScreen('cadastro');
+    showScreen('more');
   }
 }
 
