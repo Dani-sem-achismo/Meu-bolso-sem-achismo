@@ -2038,6 +2038,41 @@ document.getElementById('btn-reset-app').addEventListener('click', async () => {
 
 document.getElementById('btn-open-help').addEventListener('click', () => openModal('modal-help'));
 
+// ==================== FIXAR APP NA TELA INICIAL (PWA) ====================
+
+document.getElementById('btn-open-install').addEventListener('click', () => openModal('modal-install'));
+
+document.querySelectorAll('[data-install-os]').forEach((chip) => {
+  chip.addEventListener('click', () => {
+    document.querySelectorAll('[data-install-os]').forEach((c) => c.classList.remove('selected'));
+    chip.classList.add('selected');
+    const os = chip.dataset.installOs;
+    document.getElementById('install-steps-android').style.display = os === 'android' ? 'block' : 'none';
+    document.getElementById('install-steps-ios').style.display = os === 'ios' ? 'block' : 'none';
+  });
+});
+
+function closeInstallModal() {
+  localStorage.setItem('finapp_install_seen', '1');
+  closeModal('modal-install');
+}
+document.getElementById('btn-install-done').addEventListener('click', closeInstallModal);
+document.getElementById('btn-install-later').addEventListener('click', closeInstallModal);
+
+function maybeShowInstallModal() {
+  if (localStorage.getItem('finapp_install_seen') === '1') return;
+  if (window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true) {
+    localStorage.setItem('finapp_install_seen', '1');
+    return;
+  }
+  if (document.getElementById('lock-screen').style.display === 'flex') return;
+  const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent);
+  if (isIOS) {
+    document.querySelector('[data-install-os="ios"]').click();
+  }
+  openModal('modal-install');
+}
+
 // ==================== HISTÓRICO / BUSCA DE TRANSAÇÕES ====================
 
 state.historyFilters = { search: '', type: 'all', category: '' };
@@ -2188,6 +2223,7 @@ function lockKeyPress(digit) {
       if (lockPinBuffer === localStorage.getItem('finapp_pin')) {
         sessionStorage.setItem('finapp_unlocked', '1');
         document.getElementById('lock-screen').style.display = 'none';
+        maybeShowInstallModal();
       } else {
         document.getElementById('lock-error').textContent = 'PIN incorreto.';
         lockPinBuffer = '';
@@ -2208,6 +2244,7 @@ document.getElementById('btn-forgot-pin').addEventListener('click', async () => 
   sessionStorage.setItem('finapp_unlocked', '1');
   document.getElementById('lock-screen').style.display = 'none';
   renderPinStatus();
+  maybeShowInstallModal();
 });
 
 renderLockKeypad();
@@ -2256,6 +2293,7 @@ document.getElementById('btn-toggle-hide').textContent = state.hideValues ? '�
 renderAll();
 updateNotifStatus();
 handleNotificationLaunchParams();
+maybeShowInstallModal();
 
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
