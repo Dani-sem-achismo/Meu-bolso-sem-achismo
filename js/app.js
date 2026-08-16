@@ -1696,11 +1696,15 @@ function renderBudgets() {
       const existing = budgets.find((b) => b.category === c.name);
       const pct = c.recommendedPct != null ? c.recommendedPct : 5;
       const suggested = income > 0 ? (income * pct) / 100 : null;
+      const actualPct = income > 0 && existing && existing.limitAmount > 0 ? (existing.limitAmount / income) * 100 : null;
       return `
       <div class="budget-row">
-        <div class="list-row-input" style="border-bottom:none;padding:0;">
+        <div class="list-row-input" style="border-bottom:none;padding:0;align-items:flex-start;">
           <div class="cat-name">${c.icon} ${c.name}</div>
-          <input type="number" inputmode="decimal" class="budget-limit-input" data-budget-cat="${c.name}" placeholder="0,00" value="${existing ? existing.limitAmount : ''}">
+          <div style="text-align:right;">
+            <input type="number" inputmode="decimal" class="budget-limit-input" data-budget-cat="${c.name}" placeholder="0,00" value="${existing ? existing.limitAmount : ''}">
+            <div class="sub-line" data-actual-pct="${c.name}" style="margin-top:2px;">${actualPct !== null ? `= ${actualPct.toFixed(1)}% da renda líquida` : ''}</div>
+          </div>
         </div>
         <div class="budget-pct-line">
           <span>Sugerido:</span>
@@ -1713,6 +1717,11 @@ function renderBudgets() {
     .join('');
 
   wrap.querySelectorAll('.budget-limit-input').forEach((input) => {
+    input.addEventListener('input', () => {
+      const val = parseFloat(input.value) || 0;
+      const pctEl = wrap.querySelector(`[data-actual-pct="${CSS.escape(input.dataset.budgetCat)}"]`);
+      if (pctEl) pctEl.textContent = income > 0 && val > 0 ? `= ${((val / income) * 100).toFixed(1)}% da renda líquida` : '';
+    });
     input.addEventListener('change', () => {
       const val = parseFloat(input.value) || 0;
       Storage.setBudget(input.dataset.budgetCat, month, val);
