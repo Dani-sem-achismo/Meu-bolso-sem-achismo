@@ -55,30 +55,50 @@
 
     <div class="card">
       <div style="display:flex;justify-content:space-between;align-items:flex-start;">
-        <div>
-          <p class="card-title">Total gasto no mês</p>
-          <p class="big-number" id="dash-total-spent">R$ 0,00</p>
-          <p class="sub-line" id="dash-comparison">—</p>
-        </div>
+        <p class="card-title" style="margin:0;">Resumo do mês</p>
         <button class="close-btn" id="btn-toggle-hide" style="font-size:22px;" title="Ocultar valores">👁️</button>
       </div>
+      <div class="summary-grid">
+        <div>
+          <p class="card-title">Recebido</p>
+          <p class="big-number" id="dash-total-income" style="color:var(--success);">R$ 0,00</p>
+        </div>
+        <div>
+          <p class="card-title">Gasto</p>
+          <p class="big-number" id="dash-total-spent">R$ 0,00</p>
+        </div>
+        <div>
+          <p class="card-title">Disponível</p>
+          <p class="big-number" id="dash-available">R$ 0,00</p>
+        </div>
+      </div>
+      <p class="sub-line" id="dash-comparison">—</p>
       <div id="dash-other-currencies" style="margin-top:8px;"></div>
     </div>
 
-    <button class="btn btn-secondary" id="btn-open-simulate">💬 Posso gastar isso?</button>
+    <button class="btn btn-primary" id="btn-open-simulate" style="font-size:16px;">💬 Posso gastar isso?</button>
 
     <div id="dash-alerts"></div>
 
-    <div class="section-title">Gastos por categoria</div>
+    <div class="section-title">Onde você está gastando mais</div>
     <div class="card" id="dash-chart-categories"></div>
+
+    <button class="btn btn-secondary" id="btn-open-analysis">📊 Ver análise completa</button>
+  </section>
+
+  <!-- ============ ANÁLISE DETALHADA ============ -->
+  <section class="screen" id="screen-analysis">
+    <div style="display:flex;align-items:center;gap:6px;margin-bottom:12px;">
+      <button class="close-btn" id="btn-analysis-back" style="font-size:22px;">‹</button>
+      <p style="font-weight:600;font-size:15px;margin:0;color:var(--text);">Análise detalhada</p>
+    </div>
 
     <div class="section-title">Gastos x receitas (últimos 6 meses)</div>
     <div class="card" id="dash-chart-trend"></div>
 
     <div class="section-title">Receitas este mês</div>
     <div class="card">
-      <p class="card-title">Total recebido</p>
-      <p class="big-number" id="dash-total-income" style="font-size:20px;color:var(--success);">R$ 0,00</p>
+      <p class="card-title">Detalhamento por tipo</p>
       <div id="dash-income-breakdown" style="margin-top:8px;"></div>
     </div>
 
@@ -741,7 +761,10 @@
       <p class="sub-line"><strong>Tudo neste app fica salvo só no seu celular.</strong> Não há login, nuvem ou internet envolvida — por isso é importante exportar um backup de vez em quando (veja a seção Backup, em Mais).</p>
 
       <p class="card-title" style="margin-top:16px;">🏠 Início</p>
-      <p class="sub-line">Visão geral do mês: total gasto, receitas, gráficos de gastos por categoria e de gastos x receitas dos últimos 6 meses, orçamento por categoria e transações do mês. Use as setas ‹ › no topo para navegar entre meses passados e futuros (toque em "Hoje" para voltar). Toque no 👁️ para ocultar todos os valores na tela. Toque em qualquer transação para editar, ou no 🗑️ para apagar. Toque em "Ver todas as transações" para buscar em todo o histórico, filtrando por texto, categoria ou tipo.</p>
+      <p class="sub-line">Mostra só o essencial de bater o olho: quanto entrou, quanto saiu e quanto ainda está disponível este mês, alertas de conta/fatura vencendo (com botão de pagar direto) e onde você mais gastou. Use as setas ‹ › no topo para navegar entre meses passados e futuros (toque em "Hoje" para voltar). Toque no 👁️ para ocultar todos os valores na tela. Toque em "📊 Ver análise completa" para os gráficos e detalhes.</p>
+
+      <p class="card-title" style="margin-top:16px;">📊 Análise completa</p>
+      <p class="sub-line">Gráfico de gastos x receitas dos últimos 6 meses, detalhamento das receitas por tipo, orçamento por categoria e a lista de transações do mês. Toque em qualquer transação para editar, ou no 🗑️ para apagar. Toque em "Ver todas as transações" para buscar em todo o histórico, filtrando por texto, categoria ou tipo.</p>
 
       <p class="card-title" style="margin-top:16px;">➕ Lançar um gasto ou receita</p>
       <p class="sub-line">Toque no botão "+". Escolha Gasto ou Receita, valor, categoria e data. Para gastos, escolha a forma de pagamento: Dinheiro, Pix, Débito, Cartão de Crédito, Cartão Alimentação ou Cartão Refeição. Se for cartão de crédito, escolha o cartão cadastrado e o número de parcelas — o app cria automaticamente um lançamento em cada mês futuro. Se ligar a um banco/carteira ou cartão benefício, o saldo é debitado/creditado sozinho.</p>
