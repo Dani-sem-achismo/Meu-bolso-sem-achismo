@@ -1632,6 +1632,16 @@ function renderBudgets() {
   const budgets = Storage.getBudgetsForMonth(month);
   const profile = Storage.getProfile();
   const income = profile.incomeNet || 0;
+
+  const totalBudgeted = budgets.reduce((sum, b) => sum + (b.limitAmount || 0), 0);
+  const totalAlertEl = document.getElementById('budget-total-alert');
+  if (income > 0 && totalBudgeted > income) {
+    const pct = (totalBudgeted / income) * 100;
+    totalAlertEl.innerHTML = `<div class="alert critical">A soma dos orçamentos das categorias (${Calc.fmtBRL(totalBudgeted)}) passou de 100% da sua renda líquida — está em ${pct.toFixed(0)}%. Ajuste os limites para não planejar gastar mais do que ganha.</div>`;
+  } else {
+    totalAlertEl.innerHTML = '';
+  }
+
   const wrap = document.getElementById('budget-inputs');
   wrap.innerHTML = categories
     .map((c) => {
@@ -1658,6 +1668,7 @@ function renderBudgets() {
     input.addEventListener('change', () => {
       const val = parseFloat(input.value) || 0;
       Storage.setBudget(input.dataset.budgetCat, month, val);
+      renderBudgets();
       renderDashboard();
     });
   });
