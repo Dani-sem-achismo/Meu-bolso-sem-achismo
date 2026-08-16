@@ -1493,10 +1493,25 @@ function renderDashboard() {
   }
   const alertsEl = document.getElementById('dash-alerts');
   alertsEl.innerHTML = alerts.length
-    ? alerts.map((a) => `<div class="alert ${a.severity}">${a.message}</div>`).join('')
+    ? alerts
+        .map((a) => {
+          const payBtn = a.billId
+            ? `<button class="chip" data-dash-pay-bill="${a.billId}" style="margin-top:8px;">💰 Marcar como paga</button>`
+            : a.cardId
+            ? `<button class="chip" data-dash-pay-card="${a.cardId}" style="margin-top:8px;">💰 Marcar fatura como paga</button>`
+            : '';
+          return `<div class="alert ${a.severity}">${a.message}${payBtn}</div>`;
+        })
+        .join('')
     : !isCurrentMonth
     ? `<div class="alert info">Você está vendo ${Calc.monthLabel(month)}. Toque em "Hoje" para voltar ao mês atual.</div>`
     : '';
+  alertsEl.querySelectorAll('[data-dash-pay-bill]').forEach((el) => {
+    el.addEventListener('click', () => payBill(el.dataset.dashPayBill));
+  });
+  alertsEl.querySelectorAll('[data-dash-pay-card]').forEach((el) => {
+    el.addEventListener('click', () => openPayCardModal(el.dataset.dashPayCard));
+  });
 
   // Orçamento por categoria
   const budgetsEl = document.getElementById('dash-budgets');
