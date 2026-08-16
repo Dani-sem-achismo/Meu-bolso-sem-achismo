@@ -211,6 +211,7 @@
     <div class="card">
       <p class="card-title">Guia rápido do app</p>
       <button class="btn btn-secondary" id="btn-open-help">❓ Ver instruções de uso</button>
+      <button class="btn btn-secondary" id="btn-open-install">📲 Como fixar o app no celular</button>
     </div>
 
     <div class="section-title">Perfil</div>
@@ -774,11 +775,51 @@
         <strong>Notificações:</strong> ative para receber um aviso no aparelho quando algo vencer hoje (só dispara quando você abre o app, já que é tudo offline). A notificação tem um botão de ação — toque nele pra marcar a conta como paga (ou abrir o pagamento da fatura) direto, sem precisar abrir o app e procurar.<br><br>
         <strong>Backup:</strong> exporte um arquivo com todos os seus dados e guarde em segurança; importe para restaurar.<br><br>
         <strong>Resetar aplicativo:</strong> apaga tudo e volta ao estado inicial, com confirmação em duas etapas antes de executar (não tem como desfazer — exporte um backup antes se quiser guardar algo).<br><br>
-        <strong>Perfil:</strong> renda bruta/líquida, dependentes, perfil de risco e reserva de emergência — usados para as sugestões de orçamento e investimento.
+        <strong>Perfil:</strong> renda bruta/líquida, dependentes, perfil de risco e reserva de emergência — usados para as sugestões de orçamento e investimento.<br><br>
+        <strong>Fixar o app no celular:</strong> passo a passo para adicionar o app na tela inicial do seu celular (Android ou iPhone), pra abrir como um app de verdade sem precisar do navegador. Aparece sozinho no primeiro acesso, mas pode ser visto de novo a qualquer momento aqui em Mais.
       </p>
 
       <p class="card-title" style="margin-top:16px;">⚠️ Importante</p>
       <p class="sub-line">As sugestões deste app são educacionais, baseadas em regras gerais. Não substituem um planejador financeiro (CFP®) para decisões importantes. Seus dados nunca saem do aparelho — cuide do backup.</p>
+    </div>
+  </div>
+
+  <!-- ============ MODAL: FIXAR O APP NO CELULAR (PWA install) ============ -->
+  <div class="modal-overlay" id="modal-install" style="z-index:260;">
+    <div class="modal-sheet">
+      <div class="modal-header">
+        <h2>📲 Fixe o app no seu celular</h2>
+        <button class="close-btn" data-close="modal-install">✕</button>
+      </div>
+      <p class="sub-line">Instale o Meu Bolso Sem Achismo na tela inicial do seu celular pra abrir como um app de verdade, sem precisar do navegador — continua 100% offline.</p>
+
+      <div class="chip-list" id="install-os-chips">
+        <div class="chip selected" data-install-os="android">🤖 Android</div>
+        <div class="chip" data-install-os="ios">🍎 iPhone</div>
+      </div>
+
+      <div id="install-steps-android">
+        <p class="card-title" style="margin-top:16px;">Pelo Chrome:</p>
+        <p class="sub-line">
+          1. Toque nos <strong>três pontinhos (⋮)</strong> no canto superior direito<br>
+          2. Toque em <strong>"Adicionar à tela inicial"</strong> (ou "Instalar app")<br>
+          3. Toque em <strong>"Adicionar"</strong> para confirmar<br><br>
+          Pronto! O ícone aparece na sua tela inicial, igual a qualquer outro app.
+        </p>
+      </div>
+      <div id="install-steps-ios" style="display:none;">
+        <p class="card-title" style="margin-top:16px;">Pelo Safari:</p>
+        <p class="sub-line">
+          1. Toque no ícone de <strong>compartilhar</strong> (quadrado com uma seta pra cima), na barra de baixo<br>
+          2. Role as opções e toque em <strong>"Adicionar à Tela de Início"</strong><br>
+          3. Toque em <strong>"Adicionar"</strong> no canto superior direito<br><br>
+          Pronto! O ícone aparece na sua tela de início, igual a qualquer outro app.<br><br>
+          <em>Precisa ser pelo Safari — no iPhone, o Chrome não consegue instalar apps na tela inicial.</em>
+        </p>
+      </div>
+
+      <button class="btn btn-primary" id="btn-install-done">Entendi, já vou fixar</button>
+      <button class="btn btn-secondary" id="btn-install-later">Fazer isso depois</button>
     </div>
   </div>
 
