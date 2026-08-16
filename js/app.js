@@ -12,12 +12,46 @@ const state = {
   simPayment: 'Dinheiro',
   hideValues: localStorage.getItem('finapp_hide_values') === '1',
   viewMonth: Calc.currentMonthKey(),
+  multiCurrency: localStorage.getItem('finapp_multi_currency') === '1',
 };
+
+// Só mostra seletor de moeda pra quem ativou — por padrão fica tudo em R$, sem ruído
+function multiCurrencyOn() {
+  return state.multiCurrency && Storage.getCurrencies().length > 1;
+}
 
 // Formata um valor com a moeda do próprio registro (sem conversão), respeitando o modo oculto
 function fmtCurrency(value, currencyCode) {
   const meta = Storage.getCurrency(currencyCode);
   return state.hideValues ? '••••••' : Calc.fmtMoney(value, meta);
+}
+
+// -------- Diálogos no tema do app (substituem alert()/confirm() nativos) --------
+function appAlert(message) {
+  return new Promise((resolve) => {
+    document.getElementById('appalert-message').textContent = message;
+    openModal('modal-appalert');
+    document.getElementById('btn-appalert-ok').onclick = () => {
+      closeModal('modal-appalert');
+      resolve();
+    };
+  });
+}
+
+function appConfirm(message, { danger = false } = {}) {
+  return new Promise((resolve) => {
+    document.getElementById('appconfirm-message').textContent = message;
+    const okBtn = document.getElementById('btn-appconfirm-ok');
+    okBtn.className = danger ? 'btn btn-danger' : 'btn btn-primary';
+    okBtn.textContent = danger ? 'Sim, continuar' : 'Confirmar';
+    openModal('modal-appconfirm');
+    const finish = (result) => {
+      closeModal('modal-appconfirm');
+      resolve(result);
+    };
+    okBtn.onclick = () => finish(true);
+    document.getElementById('btn-appconfirm-cancel').onclick = () => finish(false);
+  });
 }
 
 // -------- Navegação por mês (compartilhada entre Início e Orçamento) --------
@@ -130,7 +164,7 @@ function renderTxCurrencyChips() {
   const currencies = Storage.getCurrencies();
   const wrap = document.getElementById('tx-currency-wrap');
   const isCardPayment = state.txType === 'expense' && CARD_PAYMENT_METHODS.includes(state.txPayment);
-  wrap.style.display = currencies.length > 1 && !isCardPayment ? 'block' : 'none';
+  wrap.style.display = multiCurrencyOn() && !isCardPayment ? 'block' : 'none';
   document.getElementById('tx-currency-chips').innerHTML = currencies
     .map((c) => `<div class="chip ${c.code === state.txCurrency ? 'selected' : ''}" data-currency="${c.code}">${c.symbol} ${c.code}</div>`)
     .join('');
@@ -195,10 +229,10 @@ function applyTransactionEffects(tx) {
   }
 }
 
-function deleteTransactionById(id) {
+async function deleteTransactionById(id) {
   const tx = Storage.getTransaction(id);
   if (!tx) return;
-  if (!confirm('Apagar este lançamento? Essa ação não pode ser desfeita.')) return;
+  if (!(await appConfirm('Apagar este lançamento? Essa ação não pode ser desfeita.', { danger: true }))) return;
   reverseTransactionEffects(tx);
   Storage.deleteTransaction(id);
   renderAll();
@@ -323,10 +357,10 @@ function updateTxAccountVisibility() {
   document.getElementById('tx-account-wrap').style.display = showAccount ? 'block' : 'none';
 }
 
-document.getElementById('btn-save-tx').addEventListener('click', () => {
+document.getElementById('btn-save-tx').addEventListener('click', async () => {
   const amount = parseFloat(document.getElementById('tx-amount').value);
   if (!amount || amount <= 0) {
-    alert('Informe um valor válido.');
+    await appAlert('Informe um valor válido.');
     return;
   }
   const date = document.getElementById('tx-date').value || todayISO();
@@ -454,7 +488,7 @@ function openInvModal(editId) {
 function renderInvCurrencyChips() {
   const currencies = Storage.getCurrencies();
   const wrap = document.getElementById('inv-currency-wrap');
-  wrap.style.display = currencies.length > 1 ? 'block' : 'none';
+  wrap.style.display = multiCurrencyOn() ? 'block' : 'none';
   document.getElementById('inv-currency-chips').innerHTML = currencies
     .map((c) => `<div class="chip ${c.code === state.invCurrency ? 'selected' : ''}" data-currency="${c.code}">${c.symbol} ${c.code}</div>`)
     .join('');
@@ -476,10 +510,10 @@ document.querySelectorAll('#modal-inv .type-btn').forEach((btn) => {
   btn.addEventListener('click', () => setInvMovement(btn.dataset.movement));
 });
 
-document.getElementById('btn-save-inv').addEventListener('click', () => {
+document.getElementById('btn-save-inv').addEventListener('click', async () => {
   const amount = parseFloat(document.getElementById('inv-amount').value);
   if (!amount || amount <= 0) {
-    alert('Informe um valor válido.');
+    await appAlert('Informe um valor válido.');
     return;
   }
   const patch = {
@@ -502,9 +536,9 @@ document.getElementById('btn-save-inv').addEventListener('click', () => {
   renderAll();
 });
 
-document.getElementById('btn-delete-inv').addEventListener('click', () => {
+document.getElementById('btn-delete-inv').addEventListener('click', async () => {
   if (!state.editingInvId) return;
-  if (!confirm('Apagar este registro de investimento?')) return;
+  if (!(await appConfirm('Apagar este registro de investimento?', { danger: true }))) return;
   Storage.deleteInvestment(state.editingInvId);
   closeModal('modal-inv');
   renderAll();
@@ -537,9 +571,9 @@ function openBillModal(editId) {
 }
 document.getElementById('btn-add-bill').addEventListener('click', () => openBillModal());
 
-document.getElementById('btn-delete-bill').addEventListener('click', () => {
+document.getElementById('btn-delete-bill').addEventListener('click', async () => {
   if (!state.editingBillId) return;
-  if (!confirm('Apagar esta conta a pagar?')) return;
+  if (!(await appConfirm('Apagar esta conta a pagar?', { danger: true }))) return;
   Storage.deleteBill(state.editingBillId);
   closeModal('modal-bill');
   renderAll();
@@ -560,12 +594,12 @@ function renderBillCategories() {
   });
 }
 
-document.getElementById('btn-save-bill').addEventListener('click', () => {
+document.getElementById('btn-save-bill').addEventListener('click', async () => {
   const name = document.getElementById('bill-name').value.trim();
   const amount = parseFloat(document.getElementById('bill-amount').value);
   const dueDay = parseInt(document.getElementById('bill-day').value);
   if (!name || !amount || amount <= 0 || !dueDay || dueDay < 1 || dueDay > 31) {
-    alert('Preencha nome, valor e um dia de vencimento válido (1-31).');
+    await appAlert('Preencha nome, valor e um dia de vencimento válido (1-31).');
     return;
   }
   if (state.editingBillId) {
@@ -643,7 +677,7 @@ function openAccountModal(editId) {
   const currencies = Storage.getCurrencies();
   const currencySel = document.getElementById('account-currency');
   currencySel.innerHTML = currencies.map((c) => `<option value="${c.code}">${c.symbol} ${c.code}</option>`).join('');
-  document.getElementById('account-currency-wrap').style.display = currencies.length > 1 ? 'block' : 'none';
+  document.getElementById('account-currency-wrap').style.display = multiCurrencyOn() ? 'block' : 'none';
 
   if (editId) {
     const acc = Storage.getAccounts().find((a) => a.id === editId);
@@ -666,13 +700,13 @@ function openAccountModal(editId) {
 }
 document.getElementById('btn-add-account').addEventListener('click', () => openAccountModal());
 
-document.getElementById('btn-save-account').addEventListener('click', () => {
+document.getElementById('btn-save-account').addEventListener('click', async () => {
   const name = document.getElementById('account-name').value.trim();
   const type = document.getElementById('account-type').value;
   const balance = parseFloat(document.getElementById('account-balance').value) || 0;
   const currency = document.getElementById('account-currency').value || 'BRL';
   if (!name) {
-    alert('Dê um nome para a conta/carteira.');
+    await appAlert('Dê um nome para a conta/carteira.');
     return;
   }
   if (state.editingAccountId) {
@@ -684,9 +718,9 @@ document.getElementById('btn-save-account').addEventListener('click', () => {
   renderAll();
 });
 
-document.getElementById('btn-delete-account').addEventListener('click', () => {
+document.getElementById('btn-delete-account').addEventListener('click', async () => {
   if (!state.editingAccountId) return;
-  if (!confirm('Apagar esta conta/carteira? Lançamentos já registrados não serão apagados.')) return;
+  if (!(await appConfirm('Apagar esta conta/carteira? Lançamentos já registrados não serão apagados.', { danger: true }))) return;
   Storage.deleteAccount(state.editingAccountId);
   closeModal('modal-account');
   renderAll();
@@ -771,10 +805,10 @@ function openCardModal(editId) {
 }
 document.getElementById('btn-add-card').addEventListener('click', () => openCardModal());
 
-document.getElementById('btn-save-card').addEventListener('click', () => {
+document.getElementById('btn-save-card').addEventListener('click', async () => {
   const name = document.getElementById('card-name').value.trim();
   if (!name) {
-    alert('Dê um nome para o cartão.');
+    await appAlert('Dê um nome para o cartão.');
     return;
   }
   let patch;
@@ -782,7 +816,7 @@ document.getElementById('btn-save-card').addEventListener('click', () => {
     const dueDay = parseInt(document.getElementById('card-due-day').value);
     const limit = parseFloat(document.getElementById('card-limit').value) || 0;
     if (!dueDay || dueDay < 1 || dueDay > 31) {
-      alert('Informe um dia de vencimento válido (1-31).');
+      await appAlert('Informe um dia de vencimento válido (1-31).');
       return;
     }
     patch = { name, kind: 'credito', dueDay, limit };
@@ -800,9 +834,9 @@ document.getElementById('btn-save-card').addEventListener('click', () => {
   renderAll();
 });
 
-document.getElementById('btn-delete-card').addEventListener('click', () => {
+document.getElementById('btn-delete-card').addEventListener('click', async () => {
   if (!state.editingCardId) return;
-  if (!confirm('Apagar este cartão? Lançamentos já registrados não serão apagados.')) return;
+  if (!(await appConfirm('Apagar este cartão? Lançamentos já registrados não serão apagados.', { danger: true }))) return;
   Storage.deleteCard(state.editingCardId);
   closeModal('modal-card');
   renderAll();
@@ -884,15 +918,15 @@ function openPayCardModal(cardId) {
   openModal('modal-pay-card');
 }
 
-document.getElementById('btn-save-pay-card').addEventListener('click', () => {
+document.getElementById('btn-save-pay-card').addEventListener('click', async () => {
   const amount = parseFloat(document.getElementById('pay-card-amount').value);
   if (!amount || amount <= 0) {
-    alert('Informe um valor válido.');
+    await appAlert('Informe um valor válido.');
     return;
   }
   const accountId = document.getElementById('pay-card-account').value;
   if (!accountId) {
-    alert('Escolha de qual conta saiu o pagamento.');
+    await appAlert('Escolha de qual conta saiu o pagamento.');
     return;
   }
   const card = Storage.getCards().find((c) => c.id === state.payingCardId);
@@ -937,12 +971,12 @@ function openCategoryModal(name) {
 }
 document.getElementById('btn-add-category').addEventListener('click', () => openCategoryModal());
 
-document.getElementById('btn-save-category').addEventListener('click', () => {
+document.getElementById('btn-save-category').addEventListener('click', async () => {
   const name = document.getElementById('category-name').value.trim();
   const icon = document.getElementById('category-icon').value.trim() || '🏷️';
   const pct = parseFloat(document.getElementById('category-pct').value) || 0;
   if (!name) {
-    alert('Dê um nome para a categoria.');
+    await appAlert('Dê um nome para a categoria.');
     return;
   }
   if (state.editingCategoryName) {
@@ -955,9 +989,9 @@ document.getElementById('btn-save-category').addEventListener('click', () => {
   renderAll();
 });
 
-document.getElementById('btn-delete-category').addEventListener('click', () => {
+document.getElementById('btn-delete-category').addEventListener('click', async () => {
   if (!state.editingCategoryName) return;
-  if (!confirm('Apagar esta categoria? Lançamentos já feitos com ela continuam guardados, só não vai mais aparecer para escolher.')) return;
+  if (!(await appConfirm('Apagar esta categoria? Lançamentos já feitos com ela continuam guardados, só não vai mais aparecer para escolher.', { danger: true }))) return;
   Storage.deleteCategory(state.editingCategoryName);
   closeModal('modal-category');
   renderAll();
@@ -1002,11 +1036,11 @@ function openIncomeCategoryModal(name) {
 }
 document.getElementById('btn-add-income-category').addEventListener('click', () => openIncomeCategoryModal());
 
-document.getElementById('btn-save-income-category').addEventListener('click', () => {
+document.getElementById('btn-save-income-category').addEventListener('click', async () => {
   const name = document.getElementById('income-category-name').value.trim();
   const icon = document.getElementById('income-category-icon').value.trim() || '➕';
   if (!name) {
-    alert('Dê um nome para o tipo de receita.');
+    await appAlert('Dê um nome para o tipo de receita.');
     return;
   }
   if (state.editingIncomeCategoryName) {
@@ -1018,9 +1052,9 @@ document.getElementById('btn-save-income-category').addEventListener('click', ()
   renderAll();
 });
 
-document.getElementById('btn-delete-income-category').addEventListener('click', () => {
+document.getElementById('btn-delete-income-category').addEventListener('click', async () => {
   if (!state.editingIncomeCategoryName) return;
-  if (!confirm('Apagar este tipo de receita?')) return;
+  if (!(await appConfirm('Apagar este tipo de receita?', { danger: true }))) return;
   Storage.deleteIncomeCategory(state.editingIncomeCategoryName);
   closeModal('modal-income-category');
   renderAll();
@@ -1065,19 +1099,19 @@ function openCurrencyModal(code) {
 }
 document.getElementById('btn-add-currency').addEventListener('click', () => openCurrencyModal());
 
-document.getElementById('btn-save-currency').addEventListener('click', () => {
+document.getElementById('btn-save-currency').addEventListener('click', async () => {
   const code = document.getElementById('currency-code').value.trim().toUpperCase();
   const symbol = document.getElementById('currency-symbol').value.trim();
   const decimals = parseInt(document.getElementById('currency-decimals').value);
   if (!code || !symbol) {
-    alert('Preencha código e símbolo da moeda.');
+    await appAlert('Preencha código e símbolo da moeda.');
     return;
   }
   if (state.editingCurrencyCode) {
     Storage.updateCurrencyFull(state.editingCurrencyCode, { code, symbol, decimals });
   } else {
     if (Storage.getCurrencies().find((c) => c.code === code)) {
-      alert('Já existe uma moeda com esse código.');
+      await appAlert('Já existe uma moeda com esse código.');
       return;
     }
     Storage.addCurrency(code, symbol, decimals);
@@ -1086,15 +1120,24 @@ document.getElementById('btn-save-currency').addEventListener('click', () => {
   renderAll();
 });
 
-document.getElementById('btn-delete-currency').addEventListener('click', () => {
+document.getElementById('btn-delete-currency').addEventListener('click', async () => {
   if (!state.editingCurrencyCode || state.editingCurrencyCode === 'BRL') return;
-  if (!confirm('Apagar esta moeda? Lançamentos já feitos nela continuam guardados, só não vai mais aparecer para escolher.')) return;
+  if (!(await appConfirm('Apagar esta moeda? Lançamentos já feitos nela continuam guardados, só não vai mais aparecer para escolher.', { danger: true }))) return;
   Storage.deleteCurrency(state.editingCurrencyCode);
   closeModal('modal-currency');
   renderAll();
 });
 
+document.getElementById('toggle-multi-currency').addEventListener('change', (e) => {
+  state.multiCurrency = e.target.checked;
+  localStorage.setItem('finapp_multi_currency', state.multiCurrency ? '1' : '0');
+  document.getElementById('currencies-section').style.display = state.multiCurrency ? 'block' : 'none';
+});
+
 function renderCurrenciesList() {
+  document.getElementById('toggle-multi-currency').checked = state.multiCurrency;
+  document.getElementById('currencies-section').style.display = state.multiCurrency ? 'block' : 'none';
+
   const currencies = Storage.getCurrencies();
   const listEl = document.getElementById('currencies-list');
   listEl.innerHTML = currencies
@@ -1150,10 +1193,10 @@ function setSimPayment(method) {
   document.getElementById('sim-installments-wrap').style.display = method === 'Cartão de Crédito' ? 'block' : 'none';
 }
 
-document.getElementById('btn-calc-simulate').addEventListener('click', () => {
+document.getElementById('btn-calc-simulate').addEventListener('click', async () => {
   const amount = parseFloat(document.getElementById('sim-amount').value);
   if (!amount || amount <= 0) {
-    alert('Informe um valor válido.');
+    await appAlert('Informe um valor válido.');
     return;
   }
   const installments =
@@ -1250,11 +1293,59 @@ function renderTrendChart(containerId, months) {
 }
 
 // -------- Render: Dashboard --------
+function renderOnboarding() {
+  const card = document.getElementById('onboarding-card');
+  if (localStorage.getItem('finapp_onboarding_dismissed') === '1') {
+    card.style.display = 'none';
+    return;
+  }
+
+  const profile = Storage.getProfile();
+  const hasIncome = (profile.incomeNet || 0) > 0;
+  const hasAccountsOrCards = Storage.getAccounts().length > 0 || Storage.getCards().length > 0;
+  const hasTransaction = Storage.getTransactions().length > 0;
+
+  if (hasIncome && hasAccountsOrCards && hasTransaction) {
+    card.style.display = 'none';
+    return;
+  }
+
+  card.style.display = 'block';
+  const steps = [
+    { done: hasIncome, label: 'Configure sua renda', action: 'profile' },
+    { done: hasAccountsOrCards, label: 'Cadastre uma conta ou cartão', action: 'cadastro' },
+    { done: hasTransaction, label: 'Registre seu primeiro gasto', action: 'tx' },
+  ];
+  document.getElementById('onboarding-steps').innerHTML = steps
+    .map(
+      (s) => `
+    <div class="cat-row" ${s.done ? '' : `data-onboarding-action="${s.action}" style="cursor:pointer;"`}>
+      <div class="cat-name">${s.done ? '✅' : '⬜'} ${s.label}</div>
+      ${s.done ? '' : '<div class="cat-values">›</div>'}
+    </div>`
+    )
+    .join('');
+  document.querySelectorAll('[data-onboarding-action]').forEach((el) => {
+    el.addEventListener('click', () => {
+      const action = el.dataset.onboardingAction;
+      if (action === 'profile') showScreen('more');
+      else if (action === 'cadastro') showScreen('cadastro');
+      else if (action === 'tx') openTxModal();
+    });
+  });
+}
+document.getElementById('btn-dismiss-onboarding').addEventListener('click', () => {
+  localStorage.setItem('finapp_onboarding_dismissed', '1');
+  document.getElementById('onboarding-card').style.display = 'none';
+});
+
 function renderDashboard() {
   const month = state.viewMonth;
   const isCurrentMonth = month === Calc.currentMonthKey();
   const transactions = Storage.getTransactions();
   const budgets = Storage.getBudgetsForMonth(month);
+
+  renderOnboarding();
 
   const totalSpent = Calc.totalByType(transactions, month, 'expense');
   document.getElementById('dash-total-spent').textContent = maskCurrency(totalSpent);
@@ -1665,20 +1756,20 @@ document.getElementById('input-import-backup').addEventListener('change', (e) =>
   e.target.value = '';
   if (!file) return;
   const reader = new FileReader();
-  reader.onload = () => {
+  reader.onload = async () => {
     let data;
     try {
       data = JSON.parse(reader.result);
     } catch (err) {
-      alert('Arquivo inválido. Selecione um backup exportado por este app.');
+      await appAlert('Arquivo inválido. Selecione um backup exportado por este app.');
       return;
     }
-    if (!confirm('Isso vai substituir todos os dados atuais do app pelos do backup. Continuar?')) return;
+    if (!(await appConfirm('Isso vai substituir todos os dados atuais do app pelos do backup. Continuar?', { danger: true }))) return;
     BACKUP_KEYS.forEach((key) => localStorage.removeItem(key));
     Object.entries(data).forEach(([key, rawValue]) => {
       if (BACKUP_KEYS.includes(key)) localStorage.setItem(key, rawValue);
     });
-    alert('Backup importado! O app vai recarregar.');
+    await appAlert('Backup importado! O app vai recarregar.');
     location.reload();
   };
   reader.readAsText(file);
@@ -1852,8 +1943,8 @@ function lockBackspace() {
   renderLockDots();
 }
 
-document.getElementById('btn-forgot-pin').addEventListener('click', () => {
-  if (!confirm('Isso remove o PIN de acesso (seus dados continuam salvos normalmente). Continuar?')) return;
+document.getElementById('btn-forgot-pin').addEventListener('click', async () => {
+  if (!(await appConfirm('Isso remove o PIN de acesso (seus dados continuam salvos normalmente). Continuar?', { danger: true }))) return;
   localStorage.removeItem('finapp_pin');
   sessionStorage.setItem('finapp_unlocked', '1');
   document.getElementById('lock-screen').style.display = 'none';
@@ -1878,15 +1969,15 @@ document.getElementById('btn-set-pin').addEventListener('click', () => {
   openModal('modal-set-pin');
 });
 
-document.getElementById('btn-save-pin').addEventListener('click', () => {
+document.getElementById('btn-save-pin').addEventListener('click', async () => {
   const p1 = document.getElementById('set-pin-1').value;
   const p2 = document.getElementById('set-pin-2').value;
   if (!/^\d{4}$/.test(p1)) {
-    alert('O PIN deve ter exatamente 4 números.');
+    await appAlert('O PIN deve ter exatamente 4 números.');
     return;
   }
   if (p1 !== p2) {
-    alert('Os PINs não coincidem.');
+    await appAlert('Os PINs não coincidem.');
     return;
   }
   localStorage.setItem('finapp_pin', p1);
@@ -1895,8 +1986,8 @@ document.getElementById('btn-save-pin').addEventListener('click', () => {
   renderPinStatus();
 });
 
-document.getElementById('btn-remove-pin').addEventListener('click', () => {
-  if (!confirm('Remover o bloqueio por PIN?')) return;
+document.getElementById('btn-remove-pin').addEventListener('click', async () => {
+  if (!(await appConfirm('Remover o bloqueio por PIN?', { danger: true }))) return;
   localStorage.removeItem('finapp_pin');
   renderPinStatus();
 });
