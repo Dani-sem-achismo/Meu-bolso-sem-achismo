@@ -1548,7 +1548,16 @@ function renderDashboard() {
   const totalIncome = Calc.totalByType(transactions, month, 'income');
   document.getElementById('dash-total-income').textContent = maskCurrency(totalIncome);
   const availableEl = document.getElementById('dash-available');
-  const available = totalIncome - totalSpent;
+  const availableNoteEl = document.getElementById('dash-available-note');
+  const brlAccounts = Storage.getAccounts().filter((a) => (a.currency || 'BRL') === 'BRL');
+  let available;
+  if (brlAccounts.length > 0) {
+    available = brlAccounts.reduce((sum, a) => sum + Number(a.balance), 0);
+    availableNoteEl.textContent = 'Disponível = saldo somado das suas contas e carteira em R$.';
+  } else {
+    available = totalIncome - totalSpent;
+    availableNoteEl.textContent = 'Cadastre suas contas em Mais para ver o saldo real disponível — por enquanto, comparando receitas e gastos só deste mês.';
+  }
   availableEl.textContent = maskCurrency(available);
   availableEl.style.color = available < 0 ? 'var(--danger)' : 'var(--text)';
   const incomeByCategory = Calc.totalsByCategory(transactions, month, 'income');
