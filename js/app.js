@@ -5,12 +5,20 @@ const state = {
   txType: 'expense',
   txCategory: null,
   txPayment: 'Dinheiro',
+  txCurrency: 'BRL',
   invMovement: 'aporte',
+  invCurrency: 'BRL',
   simCategory: null,
   simPayment: 'Dinheiro',
   hideValues: localStorage.getItem('finapp_hide_values') === '1',
   viewMonth: Calc.currentMonthKey(),
 };
+
+// Formata um valor com a moeda do próprio registro (sem conversão), respeitando o modo oculto
+function fmtCurrency(value, currencyCode) {
+  const meta = Storage.getCurrency(currencyCode);
+  return state.hideValues ? '••••••' : Calc.fmtMoney(value, meta);
+}
 
 // -------- Navegação por mês (compartilhada entre Início e Orçamento) --------
 function renderMonthNav() {
@@ -107,10 +115,34 @@ document.getElementById('fab-add').addEventListener('click', () => {
 // ==================== TRANSAÇÃO (gasto/receita) ====================
 
 function renderAccountOptions(selectEl, selectedId) {
-  const accounts = Storage.getAccounts();
+  const accounts = Storage.getAccounts().filter((a) => (a.currency || 'BRL') === state.txCurrency);
   selectEl.innerHTML =
     `<option value="">— nenhuma —</option>` +
-    accounts.map((a) => `<option value="${a.id}" ${a.id === selectedId ? 'selected' : ''}>${a.type === 'carteira' ? '👛' : '🏦'} ${a.name} (${Calc.fmtBRL(a.balance)})</option>`).join('');
+    accounts
+      .map(
+        (a) =>
+          `<option value="${a.id}" ${a.id === selectedId ? 'selected' : ''}>${a.type === 'carteira' ? '👛' : '🏦'} ${a.name} (${Calc.fmtMoney(a.balance, Storage.getCurrency(a.currency))})</option>`
+      )
+      .join('');
+}
+
+function renderTxCurrencyChips() {
+  const currencies = Storage.getCurrencies();
+  const wrap = document.getElementById('tx-currency-wrap');
+  const isCardPayment = state.txType === 'expense' && CARD_PAYMENT_METHODS.includes(state.txPayment);
+  wrap.style.display = currencies.length > 1 && !isCardPayment ? 'block' : 'none';
+  document.getElementById('tx-currency-chips').innerHTML = currencies
+    .map((c) => `<div class="chip ${c.code === state.txCurrency ? 'selected' : ''}" data-currency="${c.code}">${c.symbol} ${c.code}</div>`)
+    .join('');
+  document.querySelectorAll('#tx-currency-chips .chip').forEach((chip) => {
+    chip.addEventListener('click', () => setTxCurrency(chip.dataset.currency));
+  });
+}
+
+function setTxCurrency(code) {
+  state.txCurrency = code;
+  renderTxCurrencyChips();
+  renderAccountOptions(document.getElementById('tx-account'));
 }
 
 const PAYMENT_TO_CARD_KIND = { 'Cartão Alimentação': 'alimentacao', 'Cartão Refeição': 'refeicao' };
@@ -134,11 +166,13 @@ function renderBenefitCardSelect(kind) {
 }
 
 function describeTxPayment(tx) {
-  if (!tx.paymentMethod) return tx.type === 'income' ? 'Receita' : '';
+  const currency = tx.currency || 'BRL';
+  const currencyTxt = currency !== 'BRL' ? ` Moeda: ${Storage.getCurrency(currency).symbol} ${currency}.` : '';
+  if (!tx.paymentMethod) return (tx.type === 'income' ? 'Receita.' : '') + currencyTxt;
   let extra = '';
   if (tx.paymentMethod === 'Cartão de Crédito') extra = ` (${tx.cardName || 'cartão'}${tx.installmentLabel ? ' ' + tx.installmentLabel : ''})`;
   else if (tx.cardName) extra = ` (${tx.cardName})`;
-  return `Forma de pagamento: ${tx.paymentMethod}${extra} — não editável aqui. Para mudar, apague e lance de novo.`;
+  return `Forma de pagamento: ${tx.paymentMethod}${extra} — não editável aqui. Para mudar, apague e lance de novo.${currencyTxt}`;
 }
 
 function reverseTransactionEffects(tx) {
@@ -182,10 +216,12 @@ function openTxModal(prefill, editId) {
     document.getElementById('tx-amount').value = tx.amount;
     document.getElementById('tx-desc').value = tx.description || '';
     document.getElementById('tx-date').value = tx.date;
+    state.txCurrency = tx.currency || 'BRL';
     setTxType(tx.type);
     state.txCategory = tx.category;
     renderTxCategories();
     document.getElementById('tx-payment-wrap').style.display = 'none';
+    document.getElementById('tx-currency-wrap').style.display = 'none';
     document.getElementById('tx-account-wrap').style.display = 'none';
     infoEl.style.display = 'block';
     infoEl.textContent = describeTxPayment(tx);
@@ -199,10 +235,12 @@ function openTxModal(prefill, editId) {
     document.getElementById('tx-installments').value = prefill ? prefill.installments || 1 : 1;
     document.getElementById('tx-installment-start').value = 1;
     updateInstallmentStartVisibility();
+    state.txCurrency = 'BRL';
     setTxType('expense');
     if (prefill && prefill.category) state.txCategory = prefill.category;
     renderTxCategories();
     setTxPayment(prefill ? prefill.payment || 'Dinheiro' : 'Dinheiro');
+    renderTxCurrencyChips();
     renderAccountOptions(document.getElementById('tx-account'));
     infoEl.style.display = 'none';
     deleteBtn.style.display = 'none';
@@ -225,6 +263,7 @@ function setTxType(type) {
   state.txCategory = null;
   renderTxCategories();
   updateTxAccountVisibility();
+  renderTxCurrencyChips();
 }
 document.querySelectorAll('#modal-tx .type-btn').forEach((btn) => {
   btn.addEventListener('click', () => setTxType(btn.dataset.type));
@@ -263,8 +302,10 @@ function setTxPayment(method) {
   document.getElementById('tx-benefit-fields').style.display = benefitKind ? 'block' : 'none';
   if (isCredit) renderCreditCardSelect();
   if (benefitKind) renderBenefitCardSelect(benefitKind);
+  if (isCredit || benefitKind) state.txCurrency = 'BRL'; // cartões são sempre em R$
   updateTxAccountVisibility();
   updateInstallmentStartVisibility();
+  renderTxCurrencyChips();
 }
 
 function updateInstallmentStartVisibility() {
@@ -328,6 +369,7 @@ document.getElementById('btn-save-tx').addEventListener('click', () => {
         cardId,
         cardName,
         installmentLabel: `${startInstallment + i}/${installments}`,
+        currency: 'BRL',
       });
     });
   } else if (benefitKind) {
@@ -343,6 +385,7 @@ document.getElementById('btn-save-tx').addEventListener('click', () => {
       cardId,
       cardName: registeredCard ? registeredCard.name : null,
       installmentLabel: null,
+      currency: 'BRL',
     });
     if (cardId) Storage.adjustCardBalance(cardId, -amount);
   } else {
@@ -357,6 +400,7 @@ document.getElementById('btn-save-tx').addEventListener('click', () => {
       cardName: null,
       installmentLabel: null,
       accountId,
+      currency: state.txCurrency,
     });
     if (accountId) {
       Storage.adjustAccountBalance(accountId, state.txType === 'income' ? amount : -amount);
@@ -388,6 +432,8 @@ function openInvModal(editId) {
     document.getElementById('inv-maturity').value = inv.maturity || '';
     sel.value = inv.assetClass;
     liqSel.value = inv.liquidity || 'Diária';
+    state.invCurrency = inv.currency || 'BRL';
+    renderInvCurrencyChips();
     setInvMovement(inv.movement);
     deleteBtn.style.display = 'block';
   } else {
@@ -397,10 +443,27 @@ function openInvModal(editId) {
     document.getElementById('inv-date').value = todayISO();
     document.getElementById('inv-rate').value = '';
     document.getElementById('inv-maturity').value = '';
+    state.invCurrency = 'BRL';
+    renderInvCurrencyChips();
     setInvMovement('aporte');
     deleteBtn.style.display = 'none';
   }
   openModal('modal-inv');
+}
+
+function renderInvCurrencyChips() {
+  const currencies = Storage.getCurrencies();
+  const wrap = document.getElementById('inv-currency-wrap');
+  wrap.style.display = currencies.length > 1 ? 'block' : 'none';
+  document.getElementById('inv-currency-chips').innerHTML = currencies
+    .map((c) => `<div class="chip ${c.code === state.invCurrency ? 'selected' : ''}" data-currency="${c.code}">${c.symbol} ${c.code}</div>`)
+    .join('');
+  document.querySelectorAll('#inv-currency-chips .chip').forEach((chip) => {
+    chip.addEventListener('click', () => {
+      state.invCurrency = chip.dataset.currency;
+      renderInvCurrencyChips();
+    });
+  });
 }
 
 function setInvMovement(mov) {
@@ -428,6 +491,7 @@ document.getElementById('btn-save-inv').addEventListener('click', () => {
     liquidity: document.getElementById('inv-liquidity').value,
     rate: document.getElementById('inv-rate').value.trim(),
     maturity: document.getElementById('inv-maturity').value || null,
+    currency: state.invCurrency,
   };
   if (state.editingInvId) {
     Storage.updateInvestment(state.editingInvId, patch);
@@ -576,6 +640,11 @@ function renderBills() {
 function openAccountModal(editId) {
   state.editingAccountId = editId || null;
   const deleteBtn = document.getElementById('btn-delete-account');
+  const currencies = Storage.getCurrencies();
+  const currencySel = document.getElementById('account-currency');
+  currencySel.innerHTML = currencies.map((c) => `<option value="${c.code}">${c.symbol} ${c.code}</option>`).join('');
+  document.getElementById('account-currency-wrap').style.display = currencies.length > 1 ? 'block' : 'none';
+
   if (editId) {
     const acc = Storage.getAccounts().find((a) => a.id === editId);
     if (!acc) return;
@@ -583,12 +652,14 @@ function openAccountModal(editId) {
     document.getElementById('account-name').value = acc.name;
     document.getElementById('account-type').value = acc.type;
     document.getElementById('account-balance').value = acc.balance;
+    currencySel.value = acc.currency || 'BRL';
     deleteBtn.style.display = 'block';
   } else {
     document.getElementById('account-modal-title').textContent = 'Nova conta ou carteira';
     document.getElementById('account-name').value = '';
     document.getElementById('account-type').value = 'banco';
     document.getElementById('account-balance').value = '';
+    currencySel.value = 'BRL';
     deleteBtn.style.display = 'none';
   }
   openModal('modal-account');
@@ -599,14 +670,15 @@ document.getElementById('btn-save-account').addEventListener('click', () => {
   const name = document.getElementById('account-name').value.trim();
   const type = document.getElementById('account-type').value;
   const balance = parseFloat(document.getElementById('account-balance').value) || 0;
+  const currency = document.getElementById('account-currency').value || 'BRL';
   if (!name) {
     alert('Dê um nome para a conta/carteira.');
     return;
   }
   if (state.editingAccountId) {
-    Storage.updateAccount(state.editingAccountId, { name, type, balance });
+    Storage.updateAccount(state.editingAccountId, { name, type, balance, currency });
   } else {
-    Storage.addAccount({ name, type, balance });
+    Storage.addAccount({ name, type, balance, currency });
   }
   closeModal('modal-account');
   renderAll();
@@ -622,8 +694,18 @@ document.getElementById('btn-delete-account').addEventListener('click', () => {
 
 function renderAccounts() {
   const accounts = Storage.getAccounts();
-  const total = accounts.reduce((s, a) => s + Number(a.balance), 0);
-  document.getElementById('accounts-total').textContent = maskCurrency(total);
+  const totalBRL = accounts.filter((a) => (a.currency || 'BRL') === 'BRL').reduce((s, a) => s + Number(a.balance), 0);
+  document.getElementById('accounts-total').textContent = maskCurrency(totalBRL);
+
+  const byCurrency = {};
+  accounts.forEach((a) => {
+    const code = a.currency || 'BRL';
+    if (code === 'BRL') return;
+    byCurrency[code] = (byCurrency[code] || 0) + Number(a.balance);
+  });
+  document.getElementById('accounts-other-currencies').innerHTML = Object.entries(byCurrency)
+    .map(([code, val]) => `<div class="sub-line">${fmtCurrency(val, code)} em ${code}</div>`)
+    .join('');
 
   const listEl = document.getElementById('accounts-list');
   listEl.innerHTML = accounts.length
@@ -635,7 +717,7 @@ function renderAccounts() {
           <div class="tx-icon">${a.type === 'carteira' ? '👛' : '🏦'}</div>
           <div class="tx-desc">${a.name}</div>
         </div>
-        <div class="tx-amount income">${maskCurrency(a.balance)}</div>
+        <div class="tx-amount income">${fmtCurrency(a.balance, a.currency)}</div>
       </div>`
         )
         .join('')
@@ -900,6 +982,75 @@ function renderIncomeCategories() {
   });
 }
 
+// ==================== MOEDAS ====================
+
+function openCurrencyModal(code) {
+  state.editingCurrencyCode = code || null;
+  const deleteBtn = document.getElementById('btn-delete-currency');
+  if (code) {
+    const cur = Storage.getCurrency(code);
+    document.getElementById('currency-modal-title').textContent = 'Editar moeda';
+    document.getElementById('currency-code').value = cur.code;
+    document.getElementById('currency-symbol').value = cur.symbol;
+    document.getElementById('currency-decimals').value = cur.decimals;
+    deleteBtn.style.display = code === 'BRL' ? 'none' : 'block';
+  } else {
+    document.getElementById('currency-modal-title').textContent = 'Nova moeda';
+    document.getElementById('currency-code').value = '';
+    document.getElementById('currency-symbol').value = '';
+    document.getElementById('currency-decimals').value = 2;
+    deleteBtn.style.display = 'none';
+  }
+  openModal('modal-currency');
+}
+document.getElementById('btn-add-currency').addEventListener('click', () => openCurrencyModal());
+
+document.getElementById('btn-save-currency').addEventListener('click', () => {
+  const code = document.getElementById('currency-code').value.trim().toUpperCase();
+  const symbol = document.getElementById('currency-symbol').value.trim();
+  const decimals = parseInt(document.getElementById('currency-decimals').value);
+  if (!code || !symbol) {
+    alert('Preencha código e símbolo da moeda.');
+    return;
+  }
+  if (state.editingCurrencyCode) {
+    Storage.updateCurrencyFull(state.editingCurrencyCode, { code, symbol, decimals });
+  } else {
+    if (Storage.getCurrencies().find((c) => c.code === code)) {
+      alert('Já existe uma moeda com esse código.');
+      return;
+    }
+    Storage.addCurrency(code, symbol, decimals);
+  }
+  closeModal('modal-currency');
+  renderAll();
+});
+
+document.getElementById('btn-delete-currency').addEventListener('click', () => {
+  if (!state.editingCurrencyCode || state.editingCurrencyCode === 'BRL') return;
+  if (!confirm('Apagar esta moeda? Lançamentos já feitos nela continuam guardados, só não vai mais aparecer para escolher.')) return;
+  Storage.deleteCurrency(state.editingCurrencyCode);
+  closeModal('modal-currency');
+  renderAll();
+});
+
+function renderCurrenciesList() {
+  const currencies = Storage.getCurrencies();
+  const listEl = document.getElementById('currencies-list');
+  listEl.innerHTML = currencies
+    .map(
+      (c) => `
+    <div class="cat-row" data-edit-currency="${c.code}" style="cursor:pointer;">
+      <div class="cat-name">${c.symbol} ${c.code}</div>
+      <div class="cat-values">${c.decimals} ${c.decimals === 1 ? 'casa decimal' : 'casas decimais'}</div>
+    </div>`
+    )
+    .join('');
+  listEl.querySelectorAll('[data-edit-currency]').forEach((el) => {
+    el.addEventListener('click', () => openCurrencyModal(el.dataset.editCurrency));
+  });
+}
+
 // ==================== POSSO GASTAR ISSO? (simulador) ====================
 
 document.getElementById('btn-open-simulate').addEventListener('click', openSimulateModal);
@@ -1048,6 +1199,19 @@ function renderDashboard() {
   const totalSpent = Calc.totalByType(transactions, month, 'expense');
   document.getElementById('dash-total-spent').textContent = maskCurrency(totalSpent);
 
+  // Outras moedas do mês (sem conversão — cada uma some separada)
+  const expenseByCurrency = Calc.totalsByCurrency(transactions, month, 'expense');
+  const incomeByCurrency = Calc.totalsByCurrency(transactions, month, 'income');
+  const otherCurrencyCodes = [...new Set([...Object.keys(expenseByCurrency), ...Object.keys(incomeByCurrency)])].filter((c) => c !== 'BRL');
+  document.getElementById('dash-other-currencies').innerHTML = otherCurrencyCodes
+    .map((code) => {
+      const parts = [];
+      if (expenseByCurrency[code]) parts.push(`gasto ${fmtCurrency(expenseByCurrency[code], code)}`);
+      if (incomeByCurrency[code]) parts.push(`receita ${fmtCurrency(incomeByCurrency[code], code)}`);
+      return `<div class="sub-line">${code}: ${parts.join(' · ')}</div>`;
+    })
+    .join('');
+
   const cmp = Calc.comparisonPrevMonth(transactions, month);
   const cmpEl = document.getElementById('dash-comparison');
   if (cmp.pct === null) {
@@ -1143,7 +1307,7 @@ function renderDashboard() {
           </div>
         </div>
         <div style="display:flex;align-items:center;gap:8px;">
-          <div class="tx-amount ${t.type}">${t.type === 'income' ? '+' : '-'} ${maskCurrency(t.amount)}</div>
+          <div class="tx-amount ${t.type}">${t.type === 'income' ? '+' : '-'} ${fmtCurrency(t.amount, t.currency)}</div>
           <button class="close-btn" data-delete-tx="${t.id}" title="Apagar">🗑️</button>
         </div>
       </div>`;
@@ -1236,6 +1400,14 @@ function renderInvestments() {
 
   document.getElementById('inv-total').textContent = Calc.fmtBRL(total);
 
+  const byCurrency = Calc.investmentTotalsByCurrency(investments);
+  const otherEntries = Object.entries(byCurrency).filter(([code]) => code !== 'BRL');
+  document.getElementById('inv-other-currencies').innerHTML = otherEntries.length
+    ? otherEntries
+        .map(([code, val]) => `<div class="sub-line">${Calc.fmtMoney(val, Storage.getCurrency(code))} investido em ${code}</div>`)
+        .join('')
+    : '';
+
   const alerts = Calc.investmentAlerts(investments, profile.riskProfile);
   document.getElementById('inv-alerts').innerHTML = alerts
     .map((a) => `<div class="alert ${a.severity}">${a.message}</div>`)
@@ -1275,7 +1447,7 @@ function renderInvestments() {
             <div class="tx-date">${i.assetClass}${details ? ' · ' + details : ''} · ${Calc.parseLocalDate(i.date).toLocaleDateString('pt-BR')}</div>
           </div>
         </div>
-        <div class="tx-amount ${i.movement === 'resgate' ? 'expense' : 'income'}">${i.movement === 'resgate' ? '-' : '+'} ${Calc.fmtBRL(i.amount)}</div>
+        <div class="tx-amount ${i.movement === 'resgate' ? 'expense' : 'income'}">${i.movement === 'resgate' ? '-' : '+'} ${Calc.fmtMoney(i.amount, Storage.getCurrency(i.currency))}</div>
       </div>`;
         })
         .join('')
@@ -1339,6 +1511,7 @@ function renderAll() {
     renderCards();
     renderExpenseCategories();
     renderIncomeCategories();
+    renderCurrenciesList();
     renderBills();
   }
   if (state.screen === 'more') {
@@ -1534,7 +1707,7 @@ function renderHistoryList() {
           </div>
         </div>
         <div style="display:flex;align-items:center;gap:8px;">
-          <div class="tx-amount ${t.type}">${t.type === 'income' ? '+' : '-'} ${Calc.fmtBRL(t.amount)}</div>
+          <div class="tx-amount ${t.type}">${t.type === 'income' ? '+' : '-'} ${Calc.fmtMoney(t.amount, Storage.getCurrency(t.currency))}</div>
           <button class="close-btn" data-hdelete-tx="${t.id}" title="Apagar">🗑️</button>
         </div>
       </div>`;

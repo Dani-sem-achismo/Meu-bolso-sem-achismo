@@ -48,6 +48,18 @@ function fmtBRL(value) {
   return (value || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 }
 
+// Formata valor com o símbolo/casas decimais da moeda (sem depender de Intl reconhecer o código,
+// já que moedas como BTC não são ISO 4217). currencyMeta = { code, symbol, decimals }.
+function fmtMoney(value, currencyMeta) {
+  const meta = currencyMeta || { symbol: 'R$', decimals: 2 };
+  if (meta.symbol === 'R$') return fmtBRL(value);
+  const num = (Number(value) || 0).toLocaleString('pt-BR', {
+    minimumFractionDigits: meta.decimals,
+    maximumFractionDigits: meta.decimals,
+  });
+  return `${meta.symbol} ${num}`;
+}
+
 function daysInMonth(year, monthIndex1based) {
   return new Date(year, monthIndex1based, 0).getDate();
 }
@@ -82,6 +94,7 @@ const Calc = {
   monthKey,
   currentMonthKey,
   fmtBRL,
+  fmtMoney,
   billDueDateForMonth,
   addMonthsToDate,
   splitInstallments,
@@ -165,17 +178,28 @@ const Calc = {
       .sort((a, b) => a.diffDays - b.diffDays);
   },
 
-  totalByType(transactions, month, type) {
+  totalByType(transactions, month, type, currency = 'BRL') {
     return Calc.transactionsForMonth(transactions, month)
-      .filter((t) => t.type === type)
+      .filter((t) => t.type === type && (t.currency || 'BRL') === currency)
       .reduce((sum, t) => sum + Number(t.amount), 0);
   },
 
-  totalsByCategory(transactions, month, type = 'expense') {
-    const list = Calc.transactionsForMonth(transactions, month).filter((t) => t.type === type);
+  totalsByCategory(transactions, month, type = 'expense', currency = 'BRL') {
+    const list = Calc.transactionsForMonth(transactions, month).filter((t) => t.type === type && (t.currency || 'BRL') === currency);
     const map = {};
     for (const t of list) {
       map[t.category] = (map[t.category] || 0) + Number(t.amount);
+    }
+    return map;
+  },
+
+  // Totais por moeda (sem conversão): usado pra mostrar "+ US$ 50, ₿ 0,01" separado do total em R$
+  totalsByCurrency(transactions, month, type) {
+    const list = Calc.transactionsForMonth(transactions, month).filter((t) => t.type === type);
+    const map = {};
+    for (const t of list) {
+      const code = t.currency || 'BRL';
+      map[code] = (map[code] || 0) + Number(t.amount);
     }
     return map;
   },
@@ -228,16 +252,28 @@ const Calc = {
   },
 
   // --- Investimentos ---
-  investmentSummary(investments) {
+  investmentSummary(investments, currency = 'BRL') {
     const byClass = {};
     let total = 0;
     for (const inv of investments) {
+      if ((inv.currency || 'BRL') !== currency) continue;
       const signal = inv.movement === 'resgate' ? -1 : 1;
       const val = Number(inv.amount) * signal;
       byClass[inv.assetClass] = (byClass[inv.assetClass] || 0) + val;
       total += val;
     }
     return { byClass, total };
+  },
+
+  // Total investido por moeda, sem conversão (ex: R$ 12.000 + US$ 1.200 + ₿ 0,05, cada um separado)
+  investmentTotalsByCurrency(investments) {
+    const map = {};
+    for (const inv of investments) {
+      const code = inv.currency || 'BRL';
+      const signal = inv.movement === 'resgate' ? -1 : 1;
+      map[code] = (map[code] || 0) + Number(inv.amount) * signal;
+    }
+    return map;
   },
 
   investmentAlerts(investments, riskProfile) {
