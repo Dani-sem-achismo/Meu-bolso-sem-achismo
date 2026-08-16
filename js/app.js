@@ -828,10 +828,13 @@ function renderCards() {
         const pct = c.limit > 0 ? (outstanding / c.limit) * 100 : 0;
         const statusClass = pct > 100 ? 'status-ultrapassado' : pct >= 80 ? 'status-aviso' : 'status-ok';
         return `
-        <div class="cat-row" data-edit-card="${c.id}" style="display:block;cursor:pointer;">
-          <div class="cat-name">${kindInfo.icon} ${c.name}</div>
-          <div class="cat-values">Vence dia ${c.dueDay} · usado ${maskCurrency(outstanding)} / ${maskCurrency(c.limit)} · disponível ${maskCurrency(available)}</div>
-          <div class="progress-bar"><div class="progress-fill ${statusClass}" style="width:${Math.min(Math.max(pct, 0), 100)}%"></div></div>
+        <div class="cat-row" style="display:block;">
+          <div data-edit-card="${c.id}" style="cursor:pointer;">
+            <div class="cat-name">${kindInfo.icon} ${c.name}</div>
+            <div class="cat-values">Vence dia ${c.dueDay} · usado ${maskCurrency(outstanding)} / ${maskCurrency(c.limit)} · disponível ${maskCurrency(available)}</div>
+            <div class="progress-bar"><div class="progress-fill ${statusClass}" style="width:${Math.min(Math.max(pct, 0), 100)}%"></div></div>
+          </div>
+          ${outstanding > 0 ? `<button class="chip" style="margin-top:8px;" data-pay-card="${c.id}">💰 Marcar fatura como paga</button>` : ''}
         </div>`;
       }
       return `
@@ -851,7 +854,64 @@ function renderCards() {
   listEl.querySelectorAll('[data-edit-card]').forEach((el) => {
     el.addEventListener('click', () => openCardModal(el.dataset.editCard));
   });
+  listEl.querySelectorAll('[data-pay-card]').forEach((el) => {
+    el.addEventListener('click', (e) => {
+      e.stopPropagation();
+      openPayCardModal(el.dataset.payCard);
+    });
+  });
 }
+
+// ==================== PAGAR FATURA DO CARTÃO (transferência, não gasto novo) ====================
+// As compras que geraram a fatura já foram lançadas nas categorias certas quando
+// parceladas. Marcar a fatura como paga só tira o dinheiro do banco escolhido —
+// não soma de novo no total de gastos nem nos orçamentos.
+
+function openPayCardModal(cardId) {
+  const card = Storage.getCards().find((c) => c.id === cardId);
+  if (!card) return;
+  const { outstanding } = Calc.cardAvailableLimit(card, Storage.getTransactions());
+  state.payingCardId = cardId;
+  document.getElementById('pay-card-name').textContent = card.name;
+  document.getElementById('pay-card-outstanding').textContent = `Fatura em aberto: ${Calc.fmtBRL(outstanding)}`;
+  document.getElementById('pay-card-amount').value = outstanding.toFixed(2);
+  document.getElementById('pay-card-date').value = todayISO();
+  const accSel = document.getElementById('pay-card-account');
+  const brlAccounts = Storage.getAccounts().filter((a) => (a.currency || 'BRL') === 'BRL');
+  accSel.innerHTML = brlAccounts.length
+    ? brlAccounts.map((a) => `<option value="${a.id}">${a.type === 'carteira' ? '👛' : '🏦'} ${a.name} (${Calc.fmtBRL(a.balance)})</option>`).join('')
+    : `<option value="">Nenhuma conta cadastrada — adicione em Cadastro</option>`;
+  openModal('modal-pay-card');
+}
+
+document.getElementById('btn-save-pay-card').addEventListener('click', () => {
+  const amount = parseFloat(document.getElementById('pay-card-amount').value);
+  if (!amount || amount <= 0) {
+    alert('Informe um valor válido.');
+    return;
+  }
+  const accountId = document.getElementById('pay-card-account').value;
+  if (!accountId) {
+    alert('Escolha de qual conta saiu o pagamento.');
+    return;
+  }
+  const card = Storage.getCards().find((c) => c.id === state.payingCardId);
+  const date = document.getElementById('pay-card-date').value || todayISO();
+  Storage.addTransaction({
+    type: 'transfer',
+    amount,
+    date,
+    description: `Pagamento fatura: ${card.name}`,
+    cardId: card.id,
+    accountId,
+    category: null,
+    paymentMethod: null,
+    currency: 'BRL',
+  });
+  Storage.adjustAccountBalance(accountId, -amount);
+  closeModal('modal-pay-card');
+  renderAll();
+});
 
 // ==================== CATEGORIAS DE GASTO ====================
 
@@ -1297,17 +1357,18 @@ function renderDashboard() {
               : t.paymentMethod
               ? ` · ${t.paymentMethod}`
               : '';
+          const isTransfer = t.type === 'transfer';
           return `
       <div class="tx-item">
-        <div class="tx-left" data-edit-tx="${t.id}" style="cursor:pointer;">
-          <div class="tx-icon">${t.type === 'income' ? '💰' : catIcon(t.category)}</div>
+        <div class="tx-left" ${isTransfer ? '' : `data-edit-tx="${t.id}" style="cursor:pointer;"`}>
+          <div class="tx-icon">${isTransfer ? '🔄' : t.type === 'income' ? '💰' : catIcon(t.category)}</div>
           <div>
             <div class="tx-desc">${t.description || t.category}</div>
             <div class="tx-date">${Calc.parseLocalDate(t.date).toLocaleDateString('pt-BR')}${paymentTag}</div>
           </div>
         </div>
         <div style="display:flex;align-items:center;gap:8px;">
-          <div class="tx-amount ${t.type}">${t.type === 'income' ? '+' : '-'} ${fmtCurrency(t.amount, t.currency)}</div>
+          <div class="tx-amount ${isTransfer ? 'transfer' : t.type}">${t.type === 'income' ? '+' : '-'} ${fmtCurrency(t.amount, t.currency)}</div>
           <button class="close-btn" data-delete-tx="${t.id}" title="Apagar">🗑️</button>
         </div>
       </div>`;
@@ -1697,17 +1758,18 @@ function renderHistoryList() {
               : t.paymentMethod
               ? ` · ${t.paymentMethod}`
               : '';
+          const isTransfer = t.type === 'transfer';
           return `
       <div class="tx-item">
-        <div class="tx-left" data-hedit-tx="${t.id}" style="cursor:pointer;">
-          <div class="tx-icon">${t.type === 'income' ? '💰' : catIcon(t.category)}</div>
+        <div class="tx-left" ${isTransfer ? '' : `data-hedit-tx="${t.id}" style="cursor:pointer;"`}>
+          <div class="tx-icon">${isTransfer ? '🔄' : t.type === 'income' ? '💰' : catIcon(t.category)}</div>
           <div>
             <div class="tx-desc">${t.description || t.category}</div>
             <div class="tx-date">${Calc.parseLocalDate(t.date).toLocaleDateString('pt-BR')}${paymentTag}</div>
           </div>
         </div>
         <div style="display:flex;align-items:center;gap:8px;">
-          <div class="tx-amount ${t.type}">${t.type === 'income' ? '+' : '-'} ${Calc.fmtMoney(t.amount, Storage.getCurrency(t.currency))}</div>
+          <div class="tx-amount ${isTransfer ? 'transfer' : t.type}">${t.type === 'income' ? '+' : '-'} ${Calc.fmtMoney(t.amount, Storage.getCurrency(t.currency))}</div>
           <button class="close-btn" data-hdelete-tx="${t.id}" title="Apagar">🗑️</button>
         </div>
       </div>`;
