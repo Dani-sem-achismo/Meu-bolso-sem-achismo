@@ -868,7 +868,10 @@ function renderCards() {
             <div class="cat-values">Vence dia ${c.dueDay} · usado ${maskCurrency(outstanding)} / ${maskCurrency(c.limit)} · disponível ${maskCurrency(available)}</div>
             <div class="progress-bar"><div class="progress-fill ${statusClass}" style="width:${Math.min(Math.max(pct, 0), 100)}%"></div></div>
           </div>
-          ${outstanding > 0 ? `<button class="chip" style="margin-top:8px;" data-pay-card="${c.id}">💰 Marcar fatura como paga</button>` : ''}
+          <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;">
+            ${outstanding > 0 ? `<button class="chip" data-pay-card="${c.id}">💰 Marcar fatura como paga</button>` : ''}
+            <button class="chip" data-card-initial="${c.id}">📋 Lançar situação atual</button>
+          </div>
         </div>`;
       }
       return `
@@ -892,6 +895,12 @@ function renderCards() {
     el.addEventListener('click', (e) => {
       e.stopPropagation();
       openPayCardModal(el.dataset.payCard);
+    });
+  });
+  listEl.querySelectorAll('[data-card-initial]').forEach((el) => {
+    el.addEventListener('click', (e) => {
+      e.stopPropagation();
+      openCardInitialModal(el.dataset.cardInitial);
     });
   });
 }
@@ -945,6 +954,70 @@ document.getElementById('btn-save-pay-card').addEventListener('click', async () 
   Storage.adjustAccountBalance(accountId, -amount);
   closeModal('modal-pay-card');
   renderAll();
+});
+
+// ==================== CONFIGURAÇÃO INICIAL DO CARTÃO ====================
+// Pra quem já usa o cartão e não quer lançar compra por compra: informa a
+// fatura atual e o total que ainda falta pagar nos próximos meses de uma vez.
+
+function openCardInitialModal(cardId) {
+  const card = Storage.getCards().find((c) => c.id === cardId);
+  if (!card) return;
+  state.cardInitialId = cardId;
+  document.getElementById('cardinitial-name').textContent = card.name;
+  document.getElementById('cardinitial-current').value = '';
+  document.getElementById('cardinitial-future-total').value = '';
+  document.getElementById('cardinitial-future-months').value = 1;
+  openModal('modal-card-initial');
+}
+
+document.getElementById('btn-save-card-initial').addEventListener('click', async () => {
+  const card = Storage.getCards().find((c) => c.id === state.cardInitialId);
+  if (!card) return;
+  const current = parseFloat(document.getElementById('cardinitial-current').value) || 0;
+  const futureTotal = parseFloat(document.getElementById('cardinitial-future-total').value) || 0;
+  const futureMonths = Math.max(1, parseInt(document.getElementById('cardinitial-future-months').value) || 1);
+
+  if (current <= 0 && futureTotal <= 0) {
+    await appAlert('Informe pelo menos um valor.');
+    return;
+  }
+
+  const today = todayISO();
+  if (current > 0) {
+    Storage.addTransaction({
+      type: 'expense',
+      amount: current,
+      category: 'Outros',
+      date: today,
+      description: 'Saldo inicial - fatura atual',
+      paymentMethod: 'Cartão de Crédito',
+      cardId: card.id,
+      cardName: card.name,
+      installmentLabel: null,
+      currency: 'BRL',
+    });
+  }
+  if (futureTotal > 0) {
+    const parts = Calc.splitInstallments(futureTotal, futureMonths);
+    parts.forEach((partAmount, i) => {
+      Storage.addTransaction({
+        type: 'expense',
+        amount: partAmount,
+        category: 'Outros',
+        date: Calc.addMonthsToDate(today, i + 1),
+        description: 'Saldo inicial - parcela futura',
+        paymentMethod: 'Cartão de Crédito',
+        cardId: card.id,
+        cardName: card.name,
+        installmentLabel: `${i + 1}/${futureMonths}`,
+        currency: 'BRL',
+      });
+    });
+  }
+  closeModal('modal-card-initial');
+  renderAll();
+  await appAlert('Situação atual do cartão lançada!');
 });
 
 // ==================== CATEGORIAS DE GASTO ====================
@@ -1773,6 +1846,24 @@ document.getElementById('input-import-backup').addEventListener('change', (e) =>
     location.reload();
   };
   reader.readAsText(file);
+});
+
+// ==================== RESETAR APLICATIVO ====================
+
+document.getElementById('btn-reset-app').addEventListener('click', async () => {
+  const step1 = await appConfirm(
+    'Isso apaga TUDO — gastos, receitas, contas, cartões, investimentos, categorias, PIN — e não tem como desfazer. Tem certeza?',
+    { danger: true }
+  );
+  if (!step1) return;
+  const step2 = await appConfirm('Última confirmação: quer mesmo resetar o aplicativo e perder todos os dados?', { danger: true });
+  if (!step2) return;
+
+  Object.keys(localStorage)
+    .filter((key) => key.startsWith('finapp_'))
+    .forEach((key) => localStorage.removeItem(key));
+  sessionStorage.removeItem('finapp_unlocked');
+  location.reload();
 });
 
 // ==================== COMO USAR ====================
