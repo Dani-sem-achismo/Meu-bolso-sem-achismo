@@ -279,9 +279,14 @@
               <select id="tx-card-select"></select>
             </div>
             <div>
-              <label for="tx-installments">Parcelas</label>
+              <label for="tx-installments">Parcelas (total)</label>
               <input type="number" id="tx-installments" min="1" value="1" inputmode="numeric">
             </div>
+          </div>
+          <div id="tx-installment-start-wrap" style="display:none;">
+            <label for="tx-installment-start">Compra já começou? A partir de qual parcela</label>
+            <input type="number" id="tx-installment-start" min="1" value="1" inputmode="numeric">
+            <p class="sub-line" style="margin-top:4px;">Ex: compra em 10x, já pagou 6 → coloque "7". Registra só as 4 parcelas que faltam, com o valor de cada uma calculado sobre o total.</p>
           </div>
           <div id="tx-card-name-wrap" style="display:none;">
             <label for="tx-card-name">Nome do cartão</label>
