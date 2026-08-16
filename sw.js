@@ -1,4 +1,4 @@
-const CACHE_NAME = 'meu-bolso-v8';
+const CACHE_NAME = 'meu-bolso-v9';
 const ASSETS = [
   './',
   './index.html',
@@ -22,6 +22,30 @@ self.addEventListener('activate', (event) => {
     )
   );
   self.clients.claim();
+});
+
+// Clique numa notificação (com ou sem botão de ação): se o app já está aberto numa
+// aba, manda uma mensagem pra ela agir (ex: marcar conta como paga) e foca nela.
+// Se não tem aba aberta, abre uma nova já com os dados na URL, pra agir assim que
+// o app carregar (ver handleNotificationLaunchParams em app.js).
+self.addEventListener('notificationclick', (event) => {
+  const notification = event.notification;
+  const data = notification.data || {};
+  const action = event.action || '';
+  notification.close();
+
+  event.waitUntil(
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
+      for (const client of clientList) {
+        if ('focus' in client) {
+          client.postMessage({ type: 'notification-action', action, kind: data.kind, id: data.id });
+          return client.focus();
+        }
+      }
+      const params = new URLSearchParams({ ntf: '1', action, kind: data.kind || '', id: data.id || '' });
+      return self.clients.openWindow(`./?${params.toString()}`);
+    })
+  );
 });
 
 self.addEventListener('fetch', (event) => {

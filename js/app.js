@@ -654,19 +654,26 @@ function renderBills() {
   listEl.querySelectorAll('[data-pay-bill]').forEach((btn) => {
     btn.addEventListener('click', (e) => {
       e.stopPropagation();
-      const bill = bills.find((b) => b.id === btn.dataset.payBill);
-      Storage.markBillPaid(bill.id, month);
-      Storage.addTransaction({
-        type: 'expense',
-        amount: bill.amount,
-        category: bill.category,
-        date: todayISO(),
-        description: `Conta: ${bill.name}`,
-        paymentMethod: null,
-      });
-      renderAll();
+      payBill(btn.dataset.payBill);
     });
   });
+}
+
+function payBill(billId) {
+  const bill = Storage.getBills().find((b) => b.id === billId);
+  if (!bill) return;
+  const month = Calc.currentMonthKey();
+  if (bill.paidMonths.includes(month)) return;
+  Storage.markBillPaid(bill.id, month);
+  Storage.addTransaction({
+    type: 'expense',
+    amount: bill.amount,
+    category: bill.category,
+    date: todayISO(),
+    description: `Conta: ${bill.name}`,
+    paymentMethod: null,
+  });
+  renderAll();
 }
 
 // ==================== CONTAS/SALDOS ====================
@@ -1774,8 +1781,20 @@ document.getElementById('btn-enable-notif').addEventListener('click', () => {
   });
 });
 
-function checkAndNotifyDueToday() {
+// Dispara via Service Worker (ServiceWorkerRegistration.showNotification), não via
+// `new Notification()` direto — em PWA instalado no Android, `new Notification()`
+// é bloqueado ("Illegal constructor") e a notificação simplesmente não sai.
+async function checkAndNotifyDueToday() {
   if (!('Notification' in window) || Notification.permission !== 'granted') return;
+  if (!('serviceWorker' in navigator)) return;
+
+  let registration;
+  try {
+    registration = await navigator.serviceWorker.ready;
+  } catch (e) {
+    return;
+  }
+  if (!registration || !registration.showNotification) return;
 
   const today = todayISO();
   const notifiedKey = `finapp_notified_${today}`;
@@ -1787,18 +1806,66 @@ function checkAndNotifyDueToday() {
     (a) => a.diffDays <= 0 && !notified.includes('card:' + a.cardId)
   );
 
-  dueBills.forEach((a) => {
-    new Notification('💰 Conta vencendo hoje', { body: a.message, tag: 'bill-' + a.billId });
+  for (const a of dueBills) {
+    await registration.showNotification('💰 Conta vencendo hoje', {
+      body: a.message,
+      tag: 'bill-' + a.billId,
+      icon: 'icons/icon.svg',
+      data: { kind: 'bill', id: a.billId },
+      actions: [{ action: 'pay', title: 'Marcar como paga' }],
+    });
     notified.push('bill:' + a.billId);
-  });
-  dueCards.forEach((a) => {
-    new Notification('💳 Fatura vencendo hoje', { body: a.message, tag: 'card-' + a.cardId });
+  }
+  for (const a of dueCards) {
+    await registration.showNotification('💳 Fatura vencendo hoje', {
+      body: a.message,
+      tag: 'card-' + a.cardId,
+      icon: 'icons/icon.svg',
+      data: { kind: 'card', id: a.cardId },
+      actions: [{ action: 'pay', title: 'Pagar fatura' }],
+    });
     notified.push('card:' + a.cardId);
-  });
+  }
 
   if (dueBills.length || dueCards.length) {
     localStorage.setItem(notifiedKey, JSON.stringify(notified));
   }
+}
+
+// Trata o clique/ação de uma notificação — tanto quando o app já está aberto
+// (mensagem do SW) quanto quando é aberto de novo a partir do clique.
+function handleNotificationAction({ action, kind, id }) {
+  if (!kind || !id) return;
+  if (kind === 'bill' && action === 'pay') {
+    payBill(id);
+    showScreen('cadastro');
+  } else if (kind === 'card' && action === 'pay') {
+    showScreen('cadastro');
+    openPayCardModal(id);
+  } else if (kind === 'bill' || kind === 'card') {
+    showScreen('cadastro');
+  }
+}
+
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.addEventListener('message', (event) => {
+    if (event.data && event.data.type === 'notification-action') {
+      handleNotificationAction(event.data);
+    }
+  });
+}
+
+// App aberto a partir do clique na notificação (estava fechado) — vem por query string.
+// Roda depois que o resto do app.js define suas funções (hoisting) e o DOM já está
+// todo parseado (este script fica no fim do body), então pode chamar direto.
+function handleNotificationLaunchParams() {
+  const params = new URLSearchParams(location.search);
+  if (params.get('ntf') !== '1') return;
+  const action = params.get('action') || undefined;
+  const kind = params.get('kind') || undefined;
+  const id = params.get('id') || undefined;
+  history.replaceState({}, '', location.pathname);
+  handleNotificationAction({ action, kind, id });
 }
 
 // ==================== BACKUP (exportar/importar) ====================
@@ -2087,10 +2154,15 @@ document.getElementById('btn-remove-pin').addEventListener('click', async () => 
 document.getElementById('btn-toggle-hide').textContent = state.hideValues ? '🙈' : '👁️';
 renderAll();
 updateNotifStatus();
-checkAndNotifyDueToday();
+handleNotificationLaunchParams();
 
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
-    navigator.serviceWorker.register('sw.js').catch((e) => console.warn('SW falhou', e));
+    navigator.serviceWorker
+      .register('sw.js')
+      .then(() => checkAndNotifyDueToday())
+      .catch((e) => console.warn('SW falhou', e));
   });
+} else {
+  checkAndNotifyDueToday();
 }
