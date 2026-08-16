@@ -265,6 +265,21 @@ const Calc = {
     return { byClass, total };
   },
 
+  // Agrupa por corretora (quem não informou cai em "Sem corretora")
+  investmentSummaryByBroker(investments, currency = 'BRL') {
+    const byBroker = {};
+    let total = 0;
+    for (const inv of investments) {
+      if ((inv.currency || 'BRL') !== currency) continue;
+      const signal = inv.movement === 'resgate' ? -1 : 1;
+      const val = Number(inv.amount) * signal;
+      const broker = inv.broker && inv.broker.trim() ? inv.broker.trim() : 'Sem corretora';
+      byBroker[broker] = (byBroker[broker] || 0) + val;
+      total += val;
+    }
+    return { byBroker, total };
+  },
+
   // Total investido por moeda, sem conversão (ex: R$ 12.000 + US$ 1.200 + ₿ 0,05, cada um separado)
   investmentTotalsByCurrency(investments) {
     const map = {};

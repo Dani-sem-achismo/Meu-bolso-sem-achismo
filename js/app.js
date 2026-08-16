@@ -461,6 +461,7 @@ function openInvModal(editId) {
     document.getElementById('inv-modal-title').textContent = 'Editar investimento';
     document.getElementById('inv-amount').value = inv.amount;
     document.getElementById('inv-name').value = inv.name || '';
+    document.getElementById('inv-broker').value = inv.broker || '';
     document.getElementById('inv-date').value = inv.date;
     document.getElementById('inv-rate').value = inv.rate || '';
     document.getElementById('inv-maturity').value = inv.maturity || '';
@@ -474,6 +475,7 @@ function openInvModal(editId) {
     document.getElementById('inv-modal-title').textContent = 'Novo aporte / resgate';
     document.getElementById('inv-amount').value = '';
     document.getElementById('inv-name').value = '';
+    document.getElementById('inv-broker').value = '';
     document.getElementById('inv-date').value = todayISO();
     document.getElementById('inv-rate').value = '';
     document.getElementById('inv-maturity').value = '';
@@ -520,6 +522,7 @@ document.getElementById('btn-save-inv').addEventListener('click', async () => {
     amount,
     assetClass: document.getElementById('inv-class').value,
     name: document.getElementById('inv-name').value.trim(),
+    broker: document.getElementById('inv-broker').value.trim(),
     date: document.getElementById('inv-date').value || todayISO(),
     movement: state.invMovement,
     liquidity: document.getElementById('inv-liquidity').value,
@@ -1661,13 +1664,22 @@ function renderInvestments() {
         .join('')
     : `<div class="empty-state">Nenhum investimento registrado ainda.</div>`;
 
+  const { byBroker } = Calc.investmentSummaryByBroker(investments);
+  const brokerEntries = Object.entries(byBroker).filter(([, v]) => v > 0);
+  document.getElementById('inv-by-broker').innerHTML = brokerEntries.length
+    ? brokerEntries
+        .sort((a, b) => b[1] - a[1])
+        .map(([broker, val]) => `<div class="cat-row"><div class="cat-name">${broker}</div><div class="cat-values">${Calc.fmtBRL(val)}</div></div>`)
+        .join('')
+    : `<div class="empty-state">Nenhum investimento em R$ registrado ainda.</div>`;
+
   const listEl = document.getElementById('inv-list');
   const sorted = [...investments].sort((a, b) => new Date(b.date) - new Date(a.date));
   listEl.innerHTML = sorted.length
     ? sorted
         .slice(0, 10)
         .map((i) => {
-          const details = [i.liquidity, i.rate, i.maturity ? `venc. ${Calc.parseLocalDate(i.maturity).toLocaleDateString('pt-BR')}` : null]
+          const details = [i.broker, i.liquidity, i.rate, i.maturity ? `venc. ${Calc.parseLocalDate(i.maturity).toLocaleDateString('pt-BR')}` : null]
             .filter(Boolean)
             .join(' · ');
           return `
