@@ -197,6 +197,8 @@ function openTxModal(prefill, editId) {
     document.getElementById('tx-date').value = todayISO();
     document.getElementById('tx-card-name').value = '';
     document.getElementById('tx-installments').value = prefill ? prefill.installments || 1 : 1;
+    document.getElementById('tx-installment-start').value = 1;
+    updateInstallmentStartVisibility();
     setTxType('expense');
     if (prefill && prefill.category) state.txCategory = prefill.category;
     renderTxCategories();
@@ -262,7 +264,18 @@ function setTxPayment(method) {
   if (isCredit) renderCreditCardSelect();
   if (benefitKind) renderBenefitCardSelect(benefitKind);
   updateTxAccountVisibility();
+  updateInstallmentStartVisibility();
 }
+
+function updateInstallmentStartVisibility() {
+  const installments = parseInt(document.getElementById('tx-installments').value) || 1;
+  const wrap = document.getElementById('tx-installment-start-wrap');
+  wrap.style.display = installments > 1 ? 'block' : 'none';
+  const startInput = document.getElementById('tx-installment-start');
+  startInput.max = installments;
+  if (parseInt(startInput.value) > installments) startInput.value = installments;
+}
+document.getElementById('tx-installments').addEventListener('input', updateInstallmentStartVisibility);
 
 function updateTxAccountVisibility() {
   const showAccount = state.txType === 'income' || !CARD_PAYMENT_METHODS.includes(state.txPayment);
@@ -301,18 +314,20 @@ document.getElementById('btn-save-tx').addEventListener('click', () => {
     const registeredCard = cardId ? Storage.getCards().find((c) => c.id === cardId) : null;
     const cardName = registeredCard ? registeredCard.name : document.getElementById('tx-card-name').value.trim();
     const installments = Math.max(1, parseInt(document.getElementById('tx-installments').value) || 1);
+    const startInstallment = Math.min(Math.max(1, parseInt(document.getElementById('tx-installment-start').value) || 1), installments);
     const parts = Calc.splitInstallments(amount, installments);
-    parts.forEach((partAmount, idx) => {
+    const remainingParts = parts.slice(startInstallment - 1);
+    remainingParts.forEach((partAmount, i) => {
       Storage.addTransaction({
         type: 'expense',
         amount: partAmount,
         category,
-        date: Calc.addMonthsToDate(date, idx),
+        date: Calc.addMonthsToDate(date, i),
         description,
         paymentMethod: state.txPayment,
         cardId,
         cardName,
-        installmentLabel: `${idx + 1}/${installments}`,
+        installmentLabel: `${startInstallment + i}/${installments}`,
       });
     });
   } else if (benefitKind) {
