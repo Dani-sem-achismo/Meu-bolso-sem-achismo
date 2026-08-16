@@ -949,15 +949,16 @@ function renderCards() {
         const { outstanding, available } = Calc.cardAvailableLimit(c, transactions);
         const pct = c.limit > 0 ? (outstanding / c.limit) * 100 : 0;
         const statusClass = pct > 100 ? 'status-ultrapassado' : pct >= 80 ? 'status-aviso' : 'status-ok';
+        const paid = (c.paidMonths || []).includes(Calc.currentMonthKey());
         return `
         <div class="cat-row" style="display:block;">
           <div data-edit-card="${c.id}" style="cursor:pointer;">
-            <div class="cat-name">${kindInfo.icon} ${c.name}</div>
+            <div class="cat-name">${kindInfo.icon} ${c.name}${paid ? ' · ✅ paga este mês' : ''}</div>
             <div class="cat-values">Vence dia ${c.dueDay} · usado ${maskCurrency(outstanding)} / ${maskCurrency(c.limit)} · disponível ${maskCurrency(available)}</div>
             <div class="progress-bar"><div class="progress-fill ${statusClass}" style="width:${Math.min(Math.max(pct, 0), 100)}%"></div></div>
           </div>
           <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;">
-            ${outstanding > 0 ? `<button class="chip" data-pay-card="${c.id}">💰 Marcar fatura como paga</button>` : ''}
+            ${outstanding > 0 && !paid ? `<button class="chip" data-pay-card="${c.id}">💰 Marcar fatura como paga</button>` : ''}
             <button class="chip" data-card-initial="${c.id}">📋 Lançar situação atual</button>
           </div>
         </div>`;
@@ -1040,6 +1041,7 @@ document.getElementById('btn-save-pay-card').addEventListener('click', async () 
     currency: 'BRL',
   });
   Storage.adjustAccountBalance(accountId, -amount);
+  Storage.markCardBillPaid(card.id, Calc.currentMonthKey());
   closeModal('modal-pay-card');
   renderAll();
 });
@@ -1924,21 +1926,23 @@ function renderCardBillsSummary() {
     listEl.innerHTML = `<div class="empty-state">Nenhum cartão de crédito cadastrado. Adicione em Mais.</div>`;
     return;
   }
+  const month = Calc.currentMonthKey();
   listEl.innerHTML = cards
     .map((c) => {
       const { outstanding } = Calc.cardAvailableLimit(c, transactions);
+      const paid = (c.paidMonths || []).includes(month);
       return `
       <div class="tx-item">
         <div class="tx-left">
           <div class="tx-icon">💳</div>
           <div>
             <div class="tx-desc">${c.name}</div>
-            <div class="tx-date">Vence dia ${c.dueDay}</div>
+            <div class="tx-date">Vence dia ${c.dueDay}${paid ? ' · ✅ paga este mês' : ''}</div>
           </div>
         </div>
         <div style="text-align:right;">
           <div class="tx-amount expense">${maskCurrency(outstanding)}</div>
-          ${outstanding > 0 ? `<button class="chip" style="margin-top:4px;" data-pay-card-bill="${c.id}">Marcar como paga</button>` : ''}
+          ${outstanding > 0 && !paid ? `<button class="chip" style="margin-top:4px;" data-pay-card-bill="${c.id}">Marcar como paga</button>` : ''}
         </div>
       </div>`;
     })

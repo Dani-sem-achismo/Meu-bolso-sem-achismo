@@ -154,7 +154,7 @@ const Calc = {
     today.setHours(0, 0, 0, 0);
     const month = currentMonthKey();
     return cards
-      .filter((c) => c.kind === 'credito' && c.dueDay)
+      .filter((c) => c.kind === 'credito' && c.dueDay && !(c.paidMonths || []).includes(month))
       .map((c) => {
         const due = billDueDateForMonth({ dueDay: c.dueDay }, month);
         const diffDays = Math.round((due - today) / 86400000);
