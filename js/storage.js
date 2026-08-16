@@ -10,6 +10,7 @@ const DB_KEYS = {
   bills: 'finapp_bills',
   accounts: 'finapp_accounts',
   cards: 'finapp_cards',
+  currencies: 'finapp_currencies',
 };
 
 // Percentuais sugeridos por categoria, baseados em benchmarks de planejamento financeiro
@@ -48,6 +49,14 @@ const CARD_KINDS = [
   { value: 'refeicao', label: 'Vale Refeição', icon: '🍽️', payment: 'Cartão Refeição' },
 ];
 const LIQUIDITY_OPTIONS = ['Diária', 'No vencimento', 'Outro'];
+
+// Moedas: sem conversão entre elas — cada uma soma separada, sem virar um número só.
+// R$ é o fallback implícito de qualquer registro antigo sem campo "currency".
+const DEFAULT_CURRENCIES = [
+  { code: 'BRL', symbol: 'R$', decimals: 2 },
+  { code: 'USD', symbol: 'US$', decimals: 2 },
+  { code: 'BTC', symbol: '₿', decimals: 8 },
+];
 
 function readJSON(key, fallback) {
   try {
@@ -218,6 +227,42 @@ const Storage = {
   },
   deleteIncomeCategory(name) {
     writeJSON(DB_KEYS.incomeCategories, Storage.getIncomeCategories().filter((c) => c.name !== name));
+  },
+
+  // Moedas (sem conversão — cada uma é somada separadamente)
+  getCurrencies() {
+    return readJSON(DB_KEYS.currencies, DEFAULT_CURRENCIES);
+  },
+  getCurrency(code) {
+    return Storage.getCurrencies().find((c) => c.code === (code || 'BRL')) || DEFAULT_CURRENCIES[0];
+  },
+  addCurrency(code, symbol, decimals) {
+    const list = Storage.getCurrencies();
+    const upperCode = code.trim().toUpperCase();
+    if (!list.find((c) => c.code === upperCode)) {
+      list.push({ code: upperCode, symbol: symbol || upperCode, decimals: decimals != null ? decimals : 2 });
+      writeJSON(DB_KEYS.currencies, list);
+    }
+    return upperCode;
+  },
+  updateCurrencyFull(oldCode, patch) {
+    const list = Storage.getCurrencies();
+    const cur = list.find((c) => c.code === oldCode);
+    if (!cur) return;
+    const newCode = patch.code && patch.code.trim() ? patch.code.trim().toUpperCase() : oldCode;
+    cur.code = newCode;
+    if (patch.symbol) cur.symbol = patch.symbol;
+    if (patch.decimals != null) cur.decimals = patch.decimals;
+    writeJSON(DB_KEYS.currencies, list);
+    if (newCode !== oldCode) {
+      writeJSON(DB_KEYS.transactions, Storage.getTransactions().map((t) => ((t.currency || 'BRL') === oldCode ? { ...t, currency: newCode } : t)));
+      writeJSON(DB_KEYS.investments, Storage.getInvestments().map((i) => ((i.currency || 'BRL') === oldCode ? { ...i, currency: newCode } : i)));
+      writeJSON(DB_KEYS.accounts, Storage.getAccounts().map((a) => ((a.currency || 'BRL') === oldCode ? { ...a, currency: newCode } : a)));
+    }
+  },
+  deleteCurrency(code) {
+    if (code === 'BRL') return; // R$ é o fallback padrão, não pode ser removido
+    writeJSON(DB_KEYS.currencies, Storage.getCurrencies().filter((c) => c.code !== code));
   },
 
   // Contas a pagar (com dia de vencimento, recorrentes mensalmente)

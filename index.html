@@ -54,6 +54,7 @@
         </div>
         <button class="close-btn" id="btn-toggle-hide" style="font-size:22px;" title="Ocultar valores">👁️</button>
       </div>
+      <div id="dash-other-currencies" style="margin-top:8px;"></div>
     </div>
 
     <button class="btn btn-secondary" id="btn-open-simulate">💬 Posso gastar isso?</button>
@@ -87,6 +88,7 @@
     <div class="card">
       <p class="card-title">Total em contas e dinheiro físico</p>
       <p class="big-number" id="accounts-total">R$ 0,00</p>
+      <div id="accounts-other-currencies" style="margin-top:8px;"></div>
     </div>
     <div class="card" id="accounts-list"></div>
     <button class="btn btn-secondary" id="btn-add-account">+ Adicionar conta ou carteira</button>
@@ -103,6 +105,11 @@
     <div class="section-title">Tipos de receita</div>
     <div class="card" id="income-categories-list"></div>
     <button class="btn btn-secondary" id="btn-add-income-category">+ Adicionar tipo de receita</button>
+
+    <div class="section-title">Moedas</div>
+    <p class="sub-line" style="margin-top:-8px;margin-bottom:8px;">Sem conversão entre elas — cada moeda soma separada (não vira um número só).</p>
+    <div class="card" id="currencies-list"></div>
+    <button class="btn btn-secondary" id="btn-add-currency">+ Adicionar moeda</button>
 
     <div class="section-title">Contas a pagar (vencimentos)</div>
     <div id="bills-alerts"></div>
@@ -134,9 +141,10 @@
     <div class="card">
       <p class="card-title">Patrimônio investido</p>
       <p class="big-number" id="inv-total">R$ 0,00</p>
+      <div id="inv-other-currencies" style="margin-top:8px;"></div>
     </div>
     <div id="inv-alerts"></div>
-    <div class="section-title">Alocação por classe</div>
+    <div class="section-title">Alocação por classe (R$)</div>
     <div class="card" id="inv-allocation"></div>
     <div class="section-title">Aportes e resgates</div>
     <div class="card" id="inv-list"></div>
@@ -254,8 +262,13 @@
         <button class="type-btn income" data-type="income">Receita</button>
       </div>
 
-      <label for="tx-amount">Valor (R$)</label>
+      <label for="tx-amount">Valor</label>
       <input type="number" id="tx-amount" inputmode="decimal" placeholder="0,00" autofocus>
+
+      <div id="tx-currency-wrap" style="display:none;">
+        <label>Moeda</label>
+        <div class="chip-list" id="tx-currency-chips"></div>
+      </div>
 
       <label>Categoria</label>
       <div class="chip-list" id="tx-categories"></div>
@@ -323,8 +336,13 @@
         <button class="type-btn expense" data-movement="resgate">Resgate</button>
       </div>
 
-      <label for="inv-amount">Valor (R$)</label>
+      <label for="inv-amount">Valor</label>
       <input type="number" id="inv-amount" inputmode="decimal" placeholder="0,00">
+
+      <div id="inv-currency-wrap" style="display:none;">
+        <label>Moeda</label>
+        <div class="chip-list" id="inv-currency-chips"></div>
+      </div>
 
       <label for="inv-class">Classe de ativo</label>
       <select id="inv-class"></select>
@@ -431,7 +449,12 @@
         <option value="carteira">Carteira / dinheiro físico</option>
       </select>
 
-      <label for="account-balance">Saldo atual (R$)</label>
+      <div id="account-currency-wrap" style="display:none;">
+        <label for="account-currency">Moeda</label>
+        <select id="account-currency"></select>
+      </div>
+
+      <label for="account-balance">Saldo atual</label>
       <input type="number" id="account-balance" inputmode="decimal" placeholder="0,00">
 
       <button class="btn btn-primary" id="btn-save-account">Salvar</button>
@@ -535,6 +558,33 @@
     </div>
   </div>
 
+  <!-- ============ MODAL: MOEDA ============ -->
+  <div class="modal-overlay" id="modal-currency">
+    <div class="modal-sheet">
+      <div class="modal-header">
+        <h2 id="currency-modal-title">Nova moeda</h2>
+        <button class="close-btn" data-close="modal-currency">✕</button>
+      </div>
+
+      <div class="two-col">
+        <div>
+          <label for="currency-code">Código</label>
+          <input type="text" id="currency-code" placeholder="Ex: EUR" maxlength="6" style="text-transform:uppercase;">
+        </div>
+        <div>
+          <label for="currency-symbol">Símbolo</label>
+          <input type="text" id="currency-symbol" placeholder="Ex: €" maxlength="6">
+        </div>
+      </div>
+
+      <label for="currency-decimals">Casas decimais</label>
+      <input type="number" id="currency-decimals" min="0" max="8" value="2">
+
+      <button class="btn btn-primary" id="btn-save-currency">Salvar</button>
+      <button class="btn btn-danger" id="btn-delete-currency" style="display:none;">Apagar moeda</button>
+    </div>
+  </div>
+
   <!-- ============ MODAL: CRIAR/ALTERAR PIN ============ -->
   <div class="modal-overlay" id="modal-set-pin">
     <div class="modal-sheet">
@@ -597,6 +647,7 @@
         <strong>Cartões:</strong> cartões de crédito (vencimento da fatura e limite — o disponível é calculado sozinho) e cartões de vale alimentação/refeição (valor que cai por mês e saldo).<br><br>
         <strong>Categorias de gasto:</strong> as categorias que aparecem ao lançar um gasto. Vêm algumas prontas (Alimentação, Transporte...), mas você pode criar, editar ou apagar as suas (ex: Pet, Filhos).<br><br>
         <strong>Tipos de receita:</strong> o mesmo, mas para o que você recebe (Salário, Adiantamento, Aluguel recebido, Freelance...).<br><br>
+        <strong>Moedas:</strong> por padrão só R$, mas você pode adicionar outras (dólar, bitcoin, o que quiser). Elas não se convertem entre si — cada uma soma separada (ex: R$ 800 + US$ 50, nunca vira um número só). Cartões de crédito/benefício continuam sempre em R$; dinheiro, Pix, débito, receitas, contas e investimentos podem usar qualquer moeda cadastrada.<br><br>
         <strong>Contas a pagar (vencimentos):</strong> contas fixas (aluguel, internet, assinaturas) com valor e dia de vencimento. O app avisa no Início quando uma está vencendo ou atrasada, e "Marcar como paga" já lança o gasto.
       </p>
 
