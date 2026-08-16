@@ -709,6 +709,11 @@ function openPayBillModal(billId) {
   document.getElementById('pay-bill-name').textContent = bill.name;
   document.getElementById('pay-bill-amount').value = bill.amount;
   document.getElementById('pay-bill-date').value = todayISO();
+  const accSel = document.getElementById('pay-bill-account');
+  const brlAccounts = Storage.getAccounts().filter((a) => (a.currency || 'BRL') === 'BRL');
+  accSel.innerHTML =
+    `<option value="">— nenhuma —</option>` +
+    brlAccounts.map((a) => `<option value="${a.id}">${a.type === 'carteira' ? '👛' : '🏦'} ${a.name} (${Calc.fmtBRL(a.balance)})</option>`).join('');
   openModal('modal-pay-bill');
 }
 
@@ -722,12 +727,13 @@ document.getElementById('btn-save-pay-bill').addEventListener('click', async () 
     return;
   }
   const date = document.getElementById('pay-bill-date').value || todayISO();
-  payBill(bill, amount, date);
+  const accountId = document.getElementById('pay-bill-account').value || null;
+  payBill(bill, amount, date, accountId);
   closeModal('modal-pay-bill');
   renderAll();
 });
 
-function payBill(bill, amount, date) {
+function payBill(bill, amount, date, accountId) {
   const month = Calc.currentMonthKey();
   if (bill.paidMonths.includes(month)) return;
   Storage.markBillPaid(bill.id, month);
@@ -752,7 +758,12 @@ function payBill(bill, amount, date) {
       date,
       description: `Conta: ${bill.name}`,
       paymentMethod: null,
+      accountId,
+      currency: 'BRL',
     });
+  }
+  if (accountId) {
+    Storage.adjustAccountBalance(accountId, -amount);
   }
   renderAll();
 }

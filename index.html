@@ -629,6 +629,10 @@
       <input type="number" id="pay-bill-amount" inputmode="decimal" placeholder="0,00">
       <p class="sub-line">Contas como luz e água costumam variar de mês pra mês — ajuste aqui se veio diferente do valor cadastrado, sem precisar editar a conta fixa.</p>
 
+      <label for="pay-bill-account">De qual conta ou carteira saiu o pagamento?</label>
+      <select id="pay-bill-account"></select>
+      <p class="sub-line">Isso desconta o valor do saldo dessa conta. Se preferir não vincular, deixe em "— nenhuma —".</p>
+
       <label for="pay-bill-date">Data</label>
       <input type="date" id="pay-bill-date">
 
@@ -803,7 +807,7 @@
       <p class="sub-line">Antes de gastar, simule: informe valor, categoria, forma de pagamento e parcelas. O app compara com o que resta no orçamento daquela categoria este mês e diz se dá para gastar e quanto sobra (ou quanto vai faltar).</p>
 
       <p class="card-title" style="margin-top:16px;">🗓️ Contas a pagar</p>
-      <p class="sub-line">Reúne tudo que tem vencimento: as faturas dos cartões de crédito cadastrados (valor e dia de vencimento, calculado sozinho) e as contas fixas (aluguel, internet, assinaturas, luz, água). Toque em "Marcar como paga" pra confirmar o pagamento — o valor pode ser ajustado ali na hora, útil pra contas que variam de mês pra mês (ex: cadastrou luz como R$ 50, mas veio R$ 68 esse mês). Pagar a fatura do cartão desconta do saldo da conta escolhida, sem contar de novo nos gastos (as compras já foram contadas quando lançadas). Se marcar uma conta fixa como "aporte de investimento", o valor confirmado vira aporte na tela Investir em vez de gasto.</p>
+      <p class="sub-line">Reúne tudo que tem vencimento: as faturas dos cartões de crédito cadastrados (valor e dia de vencimento, calculado sozinho) e as contas fixas (aluguel, internet, assinaturas, luz, água). Toque em "Marcar como paga" pra confirmar o pagamento — o valor pode ser ajustado ali na hora, útil pra contas que variam de mês pra mês (ex: cadastrou luz como R$ 50, mas veio R$ 68 esse mês). Escolha também de qual conta ou carteira saiu o dinheiro, pra descontar o saldo certinho (fica "— nenhuma —" se não quiser vincular). Pagar a fatura do cartão funciona igual, e não conta de novo nos gastos (as compras já foram contadas quando lançadas). Se marcar uma conta fixa como "aporte de investimento", o valor confirmado vira aporte na tela Investir em vez de gasto.</p>
 
       <p class="card-title" style="margin-top:16px;">🎯 Orçamento</p>
       <p class="sub-line">Defina um limite mensal de gasto para cada categoria — também navegável por mês. Se você já sabe quanto costuma gastar (ex: R$ 400 em Alimentação), digite o valor em R$ direto: o app calcula sozinho quanto isso representa da sua renda líquida em %. Cada categoria também vem com um percentual sugerido, baseado em boas práticas (ex: Moradia ~28%, Alimentação ~14%) — editável em Mais. Você pode tocar em "Usar" para aplicar o valor sugerido como limite.</p>
