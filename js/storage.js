@@ -333,10 +333,19 @@ const Storage = {
   },
   addCard(card) {
     const list = Storage.getCards();
-    const record = { id: uid(), balance: 0, ...card };
+    const record = { id: uid(), balance: 0, paidMonths: [], ...card };
     list.push(record);
     writeJSON(DB_KEYS.cards, list);
     return record;
+  },
+  markCardBillPaid(id, month) {
+    const list = Storage.getCards();
+    const card = list.find((c) => c.id === id);
+    if (card) {
+      if (!card.paidMonths) card.paidMonths = [];
+      if (!card.paidMonths.includes(month)) card.paidMonths.push(month);
+      writeJSON(DB_KEYS.cards, list);
+    }
   },
   updateCard(id, patch) {
     const list = Storage.getCards();
