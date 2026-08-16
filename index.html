@@ -84,6 +84,7 @@
     <div class="card" id="dash-chart-categories"></div>
 
     <button class="btn btn-secondary" id="btn-open-analysis">📊 Ver análise completa</button>
+    <button class="btn btn-secondary" id="btn-open-bills">🗓️ Gerenciar contas fixas</button>
   </section>
 
   <!-- ============ ANÁLISE DETALHADA ============ -->
@@ -167,6 +168,11 @@
       <p class="sub-line" style="margin-top:10px;">Como o app é 100% offline, a notificação dispara quando você abre o app e há algo vencendo hoje ou atrasado — não existe alarme com o app fechado sem internet. Abra o app diariamente para não perder nada.</p>
     </div>
 
+    <div class="section-title" id="section-bills">Contas a pagar (vencimentos)</div>
+    <div id="bills-alerts"></div>
+    <div class="card" id="bills-list"></div>
+    <button class="btn btn-secondary" id="btn-add-bill">+ Adicionar conta a pagar</button>
+
     <div class="section-title">Contas bancárias e carteira</div>
     <div class="card">
       <p class="card-title">Total em contas e dinheiro físico</p>
@@ -201,11 +207,6 @@
       <div class="card" id="currencies-list"></div>
       <button class="btn btn-secondary" id="btn-add-currency">+ Adicionar moeda</button>
     </div>
-
-    <div class="section-title">Contas a pagar (vencimentos)</div>
-    <div id="bills-alerts"></div>
-    <div class="card" id="bills-list"></div>
-    <button class="btn btn-secondary" id="btn-add-bill">+ Adicionar conta a pagar</button>
 
     <div class="section-title">Backup</div>
     <div class="card">
@@ -606,6 +607,27 @@
     </div>
   </div>
 
+  <!-- ============ MODAL: MARCAR CONTA COMO PAGA ============ -->
+  <div class="modal-overlay" id="modal-pay-bill">
+    <div class="modal-sheet">
+      <div class="modal-header">
+        <h2>Marcar conta como paga</h2>
+        <button class="close-btn" data-close="modal-pay-bill">✕</button>
+      </div>
+
+      <p class="card-title" id="pay-bill-name" style="font-size:16px;font-weight:600;color:var(--text);">—</p>
+
+      <label for="pay-bill-amount">Valor pago (R$)</label>
+      <input type="number" id="pay-bill-amount" inputmode="decimal" placeholder="0,00">
+      <p class="sub-line">Contas como luz e água costumam variar de mês pra mês — ajuste aqui se veio diferente do valor cadastrado, sem precisar editar a conta fixa.</p>
+
+      <label for="pay-bill-date">Data</label>
+      <input type="date" id="pay-bill-date">
+
+      <button class="btn btn-primary" id="btn-save-pay-bill">Confirmar pagamento</button>
+    </div>
+  </div>
+
   <!-- ============ MODAL: CONFIGURAÇÃO INICIAL DO CARTÃO ============ -->
   <div class="modal-overlay" id="modal-card-initial">
     <div class="modal-sheet">
@@ -788,7 +810,7 @@
         <strong>Categorias de gasto:</strong> as categorias que aparecem ao lançar um gasto. Vêm algumas prontas (Alimentação, Transporte...), mas você pode criar, editar ou apagar as suas (ex: Pet, Filhos).<br><br>
         <strong>Tipos de receita:</strong> o mesmo, mas para o que você recebe (Salário, Adiantamento, Aluguel recebido, Freelance...).<br><br>
         <strong>Moedas:</strong> por padrão só R$, mas você pode adicionar outras (dólar, bitcoin, o que quiser). Elas não se convertem entre si — cada uma soma separada (ex: R$ 800 + US$ 50, nunca vira um número só). Cartões de crédito/benefício continuam sempre em R$; dinheiro, Pix, débito, receitas, contas e investimentos podem usar qualquer moeda cadastrada.<br><br>
-        <strong>Contas a pagar (vencimentos):</strong> contas fixas (aluguel, internet, assinaturas) com valor e dia de vencimento. O app avisa no Início quando uma está vencendo ou atrasada, e "Marcar como paga" já lança o gasto. Se marcar a opção "Esse pagamento é um aporte de investimento" (ex: previdência privada, poupança programada), ao pagar o valor entra automaticamente como aporte na tela Investir em vez de virar um gasto — ótimo pra quem investe todo mês no mesmo lugar.<br><br>
+        <strong>Contas a pagar (vencimentos):</strong> contas fixas (aluguel, internet, assinaturas) com valor e dia de vencimento. O app avisa no Início quando uma está vencendo ou atrasada. Ao tocar em "Marcar como paga", você confirma o valor antes de lançar — útil pra contas como luz ou água, que variam de mês pra mês: ajusta ali na hora, sem precisar editar o valor cadastrado da conta. Se marcar a opção "Esse pagamento é um aporte de investimento" (ex: previdência privada, poupança programada), o valor confirmado entra automaticamente como aporte na tela Investir em vez de virar um gasto — ótimo pra quem investe todo mês no mesmo lugar.<br><br>
         <strong>Backup:</strong> exporte um arquivo com todos os seus dados e guarde em segurança; importe para restaurar.<br><br>
         <strong>Resetar aplicativo:</strong> apaga tudo e volta ao estado inicial, com confirmação em duas etapas antes de executar (não tem como desfazer — exporte um backup antes se quiser guardar algo).<br><br>
         <strong>Perfil:</strong> renda bruta/líquida, dependentes, perfil de risco e reserva de emergência — usados para as sugestões de orçamento e investimento.<br><br>

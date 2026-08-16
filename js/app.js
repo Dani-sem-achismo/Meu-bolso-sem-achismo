@@ -128,6 +128,11 @@ document.querySelectorAll('.nav-item').forEach((btn) => {
 document.getElementById('btn-open-analysis').addEventListener('click', () => showScreen('analysis'));
 document.getElementById('btn-analysis-back').addEventListener('click', () => showScreen('dashboard'));
 
+document.getElementById('btn-open-bills').addEventListener('click', () => {
+  showScreen('more');
+  document.getElementById('section-bills').scrollIntoView({ behavior: 'smooth', block: 'start' });
+});
+
 // -------- Modais --------
 function openModal(id) {
   document.getElementById(id).classList.add('active');
@@ -694,24 +699,49 @@ function renderBills() {
   listEl.querySelectorAll('[data-pay-bill]').forEach((btn) => {
     btn.addEventListener('click', (e) => {
       e.stopPropagation();
-      payBill(btn.dataset.payBill);
+      openPayBillModal(btn.dataset.payBill);
     });
   });
 }
 
-function payBill(billId) {
+function openPayBillModal(billId) {
   const bill = Storage.getBills().find((b) => b.id === billId);
   if (!bill) return;
+  const month = Calc.currentMonthKey();
+  if (bill.paidMonths.includes(month)) return;
+  state.payingBillId = billId;
+  document.getElementById('pay-bill-name').textContent = bill.name;
+  document.getElementById('pay-bill-amount').value = bill.amount;
+  document.getElementById('pay-bill-date').value = todayISO();
+  openModal('modal-pay-bill');
+}
+
+document.getElementById('btn-save-pay-bill').addEventListener('click', async () => {
+  const billId = state.payingBillId;
+  const bill = Storage.getBills().find((b) => b.id === billId);
+  if (!bill) return;
+  const amount = parseFloat(document.getElementById('pay-bill-amount').value);
+  if (!amount || amount <= 0) {
+    await appAlert('Informe um valor válido.');
+    return;
+  }
+  const date = document.getElementById('pay-bill-date').value || todayISO();
+  payBill(bill, amount, date);
+  closeModal('modal-pay-bill');
+  renderAll();
+});
+
+function payBill(bill, amount, date) {
   const month = Calc.currentMonthKey();
   if (bill.paidMonths.includes(month)) return;
   Storage.markBillPaid(bill.id, month);
   if (bill.isInvestment) {
     Storage.addInvestment({
-      amount: bill.amount,
+      amount,
       assetClass: bill.invClass || 'Renda Fixa',
       name: bill.name,
       broker: bill.invBroker || '',
-      date: todayISO(),
+      date,
       movement: 'aporte',
       liquidity: bill.invLiquidity || 'Diária',
       rate: '',
@@ -721,9 +751,9 @@ function payBill(billId) {
   } else {
     Storage.addTransaction({
       type: 'expense',
-      amount: bill.amount,
+      amount,
       category: bill.category,
-      date: todayISO(),
+      date,
       description: `Conta: ${bill.name}`,
       paymentMethod: null,
     });
@@ -1563,7 +1593,7 @@ function renderDashboard() {
     ? `<div class="alert info">Você está vendo ${Calc.monthLabel(month)}. Toque em "Hoje" para voltar ao mês atual.</div>`
     : '';
   alertsEl.querySelectorAll('[data-dash-pay-bill]').forEach((el) => {
-    el.addEventListener('click', () => payBill(el.dataset.dashPayBill));
+    el.addEventListener('click', () => openPayBillModal(el.dataset.dashPayBill));
   });
   alertsEl.querySelectorAll('[data-dash-pay-card]').forEach((el) => {
     el.addEventListener('click', () => openPayCardModal(el.dataset.dashPayCard));
@@ -1943,8 +1973,8 @@ async function checkAndNotifyDueToday() {
 function handleNotificationAction({ action, kind, id }) {
   if (!kind || !id) return;
   if (kind === 'bill' && action === 'pay') {
-    payBill(id);
     showScreen('more');
+    openPayBillModal(id);
   } else if (kind === 'card' && action === 'pay') {
     showScreen('more');
     openPayCardModal(id);
