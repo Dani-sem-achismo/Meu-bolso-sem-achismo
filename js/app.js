@@ -343,8 +343,29 @@ function setTxPayment(method) {
   if (isCredit || benefitKind) state.txCurrency = 'BRL'; // cartões são sempre em R$
   updateTxAccountVisibility();
   updateInstallmentStartVisibility();
+  updateInvoiceHint();
   renderTxCurrencyChips();
 }
+
+function updateInvoiceHint() {
+  const hintEl = document.getElementById('tx-invoice-hint');
+  const isCredit = state.txPayment === 'Cartão de Crédito' && state.txType === 'expense';
+  const cardId = document.getElementById('tx-card-select').value;
+  const card = isCredit && cardId && cardId !== '__other__' ? Storage.getCards().find((c) => c.id === cardId) : null;
+  if (!card) {
+    hintEl.style.display = 'none';
+    return;
+  }
+  const date = document.getElementById('tx-date').value || todayISO();
+  const { dueDate } = Calc.cardInvoiceForDate(card, date);
+  const label = dueDate.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' });
+  hintEl.textContent = card.closingDay
+    ? `📅 Essa compra deve cair na fatura de ${label}, vencendo em ${dueDate.toLocaleDateString('pt-BR')}.`
+    : `📅 Fatura vence em ${dueDate.toLocaleDateString('pt-BR')} — cadastre o dia de fechamento do cartão (em Mais) pra saber se cai nessa fatura ou na seguinte.`;
+  hintEl.style.display = 'block';
+}
+document.getElementById('tx-card-select').addEventListener('change', updateInvoiceHint);
+document.getElementById('tx-date').addEventListener('change', updateInvoiceHint);
 
 function updateInstallmentStartVisibility() {
   const installments = parseInt(document.getElementById('tx-installments').value) || 1;
@@ -885,6 +906,7 @@ function openCardModal(editId) {
     document.getElementById('card-modal-title').textContent = 'Editar cartão';
     document.getElementById('card-name').value = card.name;
     document.getElementById('card-due-day').value = card.dueDay || '';
+    document.getElementById('card-closing-day').value = card.closingDay || '';
     document.getElementById('card-limit').value = card.limit || '';
     document.getElementById('card-deposit').value = card.monthlyDeposit || '';
     document.getElementById('card-balance').value = card.balance || '';
@@ -894,6 +916,7 @@ function openCardModal(editId) {
     document.getElementById('card-modal-title').textContent = 'Novo cartão';
     document.getElementById('card-name').value = '';
     document.getElementById('card-due-day').value = '';
+    document.getElementById('card-closing-day').value = '';
     document.getElementById('card-limit').value = '';
     document.getElementById('card-deposit').value = '';
     document.getElementById('card-balance').value = '';
@@ -918,7 +941,13 @@ document.getElementById('btn-save-card').addEventListener('click', async () => {
       await appAlert('Informe um dia de vencimento válido (1-31).');
       return;
     }
-    patch = { name, kind: 'credito', dueDay, limit };
+    const closingDayRaw = document.getElementById('card-closing-day').value;
+    const closingDay = closingDayRaw ? parseInt(closingDayRaw) : null;
+    if (closingDay !== null && (closingDay < 1 || closingDay > 31)) {
+      await appAlert('Informe um dia de fechamento válido (1-31), ou deixe em branco.');
+      return;
+    }
+    patch = { name, kind: 'credito', dueDay, closingDay, limit };
   } else {
     const monthlyDeposit = parseFloat(document.getElementById('card-deposit').value) || 0;
     const balance = parseFloat(document.getElementById('card-balance').value) || 0;
@@ -965,7 +994,7 @@ function renderCards() {
         <div class="cat-row" style="display:block;">
           <div data-edit-card="${c.id}" style="cursor:pointer;">
             <div class="cat-name">${kindInfo.icon} ${c.name}${paid ? ' · ✅ paga este mês' : ''}</div>
-            <div class="cat-values">Vence dia ${c.dueDay} · usado ${maskCurrency(outstanding)} / ${maskCurrency(c.limit)} · disponível ${maskCurrency(available)}</div>
+            <div class="cat-values">Vence dia ${c.dueDay}${c.closingDay ? ` · fecha dia ${c.closingDay}` : ''} · usado ${maskCurrency(outstanding)} / ${maskCurrency(c.limit)} · disponível ${maskCurrency(available)}</div>
             <div class="progress-bar"><div class="progress-fill ${statusClass}" style="width:${Math.min(Math.max(pct, 0), 100)}%"></div></div>
           </div>
           <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;">

@@ -71,6 +71,19 @@ function billDueDateForMonth(bill, month) {
   return new Date(y, m - 1, day);
 }
 
+// Em qual fatura uma compra cai, dado o dia de fechamento do cartão.
+// Sem dia de fechamento cadastrado, assume que cai na fatura do mês da compra (vencendo esse mês).
+function cardInvoiceForDate(card, dateStr) {
+  const d = parseLocalDate(dateStr);
+  let invoiceMonth = new Date(d.getFullYear(), d.getMonth(), 1);
+  if (card.closingDay && d.getDate() > card.closingDay) {
+    invoiceMonth = new Date(d.getFullYear(), d.getMonth() + 1, 1);
+  }
+  const monthStr = monthKey(invoiceMonth);
+  const due = billDueDateForMonth({ dueDay: card.dueDay }, monthStr);
+  return { month: monthStr, dueDate: due };
+}
+
 // Soma amount + n meses, preservando o dia (usado para parcelas de cartão)
 function addMonthsToDate(dateStr, n) {
   const d = parseLocalDate(dateStr);
@@ -96,6 +109,7 @@ const Calc = {
   fmtBRL,
   fmtMoney,
   billDueDateForMonth,
+  cardInvoiceForDate,
   addMonthsToDate,
   splitInstallments,
   parseLocalDate,
