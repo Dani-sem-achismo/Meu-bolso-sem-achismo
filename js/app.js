@@ -175,6 +175,7 @@ function renderTxCurrencyChips() {
   document.querySelectorAll('#tx-currency-chips .chip').forEach((chip) => {
     chip.addEventListener('click', () => setTxCurrency(chip.dataset.currency));
   });
+  document.getElementById('tx-currency-prefix').textContent = Storage.getCurrency(state.txCurrency).symbol;
 }
 
 function setTxCurrency(code) {

@@ -190,6 +190,32 @@ input, select, textarea {
 }
 textarea { resize: vertical; min-height: 60px; }
 
+.amount-field {
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: 6px;
+  margin: 20px 0 8px;
+}
+.amount-field .currency-prefix {
+  font-size: 26px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+.amount-field input {
+  width: auto;
+  max-width: 220px;
+  border: none;
+  background: transparent;
+  padding: 0;
+  font-size: 48px;
+  font-weight: 700;
+  text-align: center;
+  color: var(--text);
+}
+.amount-field input:focus { outline: none; }
+.amount-field input::placeholder { color: var(--text-secondary); opacity: 0.5; }
+
 .type-toggle { display: flex; gap: 8px; margin-top: 8px; }
 .type-btn {
   flex: 1; padding: 10px; text-align: center; border-radius: 8px;
