@@ -11,6 +11,10 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="apple-mobile-web-app-title" content="Meu Bolso">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<script src="js/theme.js"></script>
 <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
@@ -34,7 +38,15 @@
 
 <div id="app">
 
-  <div class="appbar" id="appbar-title">Meu Bolso Sem Achismo</div>
+  <div class="appbar">
+    <div class="appbar-avatar">D</div>
+    <span id="appbar-title">Meu Bolso Sem Achismo</span>
+    <div class="appbar-actions">
+      <button class="icon-btn" id="btn-toggle-hide" title="Ocultar valores">👁️</button>
+      <button class="icon-btn" id="btn-toggle-theme" title="Tema claro/escuro">🌙</button>
+      <button class="icon-btn nav-item" data-screen="more" title="Ajustes">⚙️</button>
+    </div>
+  </div>
 
   <!-- ============ DASHBOARD ============ -->
   <section class="screen active" id="screen-dashboard">
@@ -53,10 +65,9 @@
       <button class="chip" data-month-today style="display:none;">Hoje</button>
     </div>
 
-    <div class="card">
+    <div class="card card-hero">
       <div style="display:flex;justify-content:space-between;align-items:flex-start;">
         <p class="card-title" style="margin:0;">Resumo do mês</p>
-        <button class="close-btn" id="btn-toggle-hide" style="font-size:22px;" title="Ocultar valores">👁️</button>
       </div>
       <div class="summary-grid">
         <div>
@@ -147,7 +158,7 @@
 
   <!-- ============ INVESTIMENTOS ============ -->
   <section class="screen" id="screen-investments">
-    <div class="card">
+    <div class="card card-hero">
       <p class="card-title">Patrimônio investido</p>
       <p class="big-number" id="inv-total">R$ 0,00</p>
       <div id="inv-other-currencies" style="margin-top:8px;"></div>
@@ -171,6 +182,17 @@
       <p class="sub-line" id="pin-status">Nenhum PIN configurado.</p>
       <button class="btn btn-primary" id="btn-set-pin">🔒 Criar PIN</button>
       <button class="btn btn-secondary" id="btn-remove-pin" style="display:none;">Remover PIN</button>
+    </div>
+
+    <div class="section-title">Aparência</div>
+    <div class="card">
+      <p class="card-title">Tema do app</p>
+      <div class="chip-list" id="theme-chips">
+        <div class="chip" data-theme-pref="auto">🌗 Automático</div>
+        <div class="chip" data-theme-pref="claro">☀️ Claro</div>
+        <div class="chip" data-theme-pref="escuro">🌙 Escuro</div>
+      </div>
+      <p class="sub-line">No automático, o app segue o tema do seu celular.</p>
     </div>
 
     <div class="section-title">Notificações</div>
@@ -314,9 +336,9 @@
   <nav class="bottom-nav">
     <button class="nav-item active" data-screen="dashboard"><span class="icon">🏠</span>Início</button>
     <button class="nav-item" data-screen="bills"><span class="icon">🗓️</span>Contas</button>
+    <div class="nav-gap"></div>
     <button class="nav-item" data-screen="budgets"><span class="icon">🎯</span>Orçamento</button>
     <button class="nav-item" data-screen="investments"><span class="icon">📈</span>Investir</button>
-    <button class="nav-item" data-screen="more"><span class="icon">☰</span>Mais</button>
   </nav>
 
   <button class="fab" id="fab-add">+</button>
@@ -963,5 +985,22 @@
 <script src="js/storage.js"></script>
 <script src="js/calc.js"></script>
 <script src="js/app.js"></script>
+<script>
+  // Liga os chips de tema e o botão 🌙 do topo ao MBTheme (js/theme.js).
+  (function () {
+    function paint() {
+      var pref = window.MBTheme.get();
+      document.querySelectorAll('#theme-chips .chip').forEach(function (c) {
+        c.classList.toggle('selected', c.dataset.themePref === pref);
+      });
+    }
+    document.querySelectorAll('#theme-chips .chip').forEach(function (c) {
+      c.addEventListener('click', function () { window.MBTheme.set(c.dataset.themePref); paint(); });
+    });
+    var btn = document.getElementById('btn-toggle-theme');
+    if (btn) btn.addEventListener('click', function () { window.MBTheme.toggle(); paint(); });
+    paint();
+  })();
+</script>
 </body>
 </html>
