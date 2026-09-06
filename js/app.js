@@ -29,7 +29,9 @@ function fmtCurrency(value, currencyCode) {
 // -------- Diálogos no tema do app (substituem alert()/confirm() nativos) --------
 function appAlert(message) {
   return new Promise((resolve) => {
-    document.getElementById('appalert-message').textContent = message;
+    const el = document.getElementById('appalert-message');
+    el.style.whiteSpace = 'pre-line';
+    el.textContent = message;
     openModal('modal-appalert');
     document.getElementById('btn-appalert-ok').onclick = () => {
       closeModal('modal-appalert');
@@ -38,19 +40,25 @@ function appAlert(message) {
   });
 }
 
-function appConfirm(message, { danger = false } = {}) {
+function appConfirm(message, { danger = false, okText = null, cancelText = null } = {}) {
   return new Promise((resolve) => {
-    document.getElementById('appconfirm-message').textContent = message;
+    // white-space: pre-line para as mensagens que usam \n fazerem parágrafo de verdade
+    const msgEl = document.getElementById('appconfirm-message');
+    msgEl.style.whiteSpace = 'pre-line';
+    msgEl.textContent = message;
     const okBtn = document.getElementById('btn-appconfirm-ok');
+    const cancelBtn = document.getElementById('btn-appconfirm-cancel');
     okBtn.className = danger ? 'btn btn-danger' : 'btn btn-primary';
-    okBtn.textContent = danger ? 'Sim, continuar' : 'Confirmar';
+    okBtn.textContent = okText || (danger ? 'Sim, continuar' : 'Confirmar');
+    cancelBtn.textContent = cancelText || 'Cancelar';
     openModal('modal-appconfirm');
     const finish = (result) => {
       closeModal('modal-appconfirm');
+      cancelBtn.textContent = 'Cancelar';
       resolve(result);
     };
     okBtn.onclick = () => finish(true);
-    document.getElementById('btn-appconfirm-cancel').onclick = () => finish(false);
+    cancelBtn.onclick = () => finish(false);
   });
 }
 
@@ -214,23 +222,28 @@ function describeTxPayment(tx) {
   return `Forma de pagamento: ${tx.paymentMethod}${extra} — não editável aqui. Para mudar, apague e lance de novo.${currencyTxt}`;
 }
 
+// O sinal do efeito no saldo depende do TIPO do lançamento. Antes o cartão de
+// benefício sempre debitava, independente de ser gasto ou receita: editar um gasto
+// de R$ 50 e trocar para receita deixava o saldo do vale R$ 100 abaixo do real.
 function reverseTransactionEffects(tx) {
+  const signal = tx.type === 'income' ? 1 : -1;
   if (tx.accountId) {
-    Storage.adjustAccountBalance(tx.accountId, tx.type === 'income' ? -tx.amount : tx.amount);
+    Storage.adjustAccountBalance(tx.accountId, -signal * tx.amount);
   }
   if (tx.cardId) {
     const card = Storage.getCards().find((c) => c.id === tx.cardId);
-    if (card && card.kind !== 'credito') Storage.adjustCardBalance(tx.cardId, tx.amount);
+    if (card && card.kind !== 'credito') Storage.adjustCardBalance(tx.cardId, -signal * tx.amount);
   }
 }
 
 function applyTransactionEffects(tx) {
+  const signal = tx.type === 'income' ? 1 : -1;
   if (tx.accountId) {
-    Storage.adjustAccountBalance(tx.accountId, tx.type === 'income' ? tx.amount : -tx.amount);
+    Storage.adjustAccountBalance(tx.accountId, signal * tx.amount);
   }
   if (tx.cardId) {
     const card = Storage.getCards().find((c) => c.id === tx.cardId);
-    if (card && card.kind !== 'credito') Storage.adjustCardBalance(tx.cardId, -tx.amount);
+    if (card && card.kind !== 'credito') Storage.adjustCardBalance(tx.cardId, signal * tx.amount);
   }
 }
 
@@ -908,6 +921,15 @@ function openCardModal(editId) {
     document.getElementById('card-limit').value = card.limit || '';
     document.getElementById('card-deposit').value = card.monthlyDeposit || '';
     document.getElementById('card-balance').value = card.balance || '';
+    document.getElementById('card-auto-recharge').checked = !!card.autoRecharge;
+    const infoEl = document.getElementById('card-recharge-info');
+    const last = (card.rechargedMonths || []).slice().sort().pop();
+    if (last) {
+      infoEl.textContent = `Última recarga creditada: ${Calc.monthLabel(last)}.`;
+      infoEl.style.display = 'block';
+    } else {
+      infoEl.style.display = 'none';
+    }
     setCardKind(card.kind);
     deleteBtn.style.display = 'block';
   } else {
@@ -917,6 +939,8 @@ function openCardModal(editId) {
     document.getElementById('card-limit').value = '';
     document.getElementById('card-deposit').value = '';
     document.getElementById('card-balance').value = '';
+    document.getElementById('card-auto-recharge').checked = false;
+    document.getElementById('card-recharge-info').style.display = 'none';
     setCardKind('credito');
     deleteBtn.style.display = 'none';
   }
@@ -942,7 +966,18 @@ document.getElementById('btn-save-card').addEventListener('click', async () => {
   } else {
     const monthlyDeposit = parseFloat(document.getElementById('card-deposit').value) || 0;
     const balance = parseFloat(document.getElementById('card-balance').value) || 0;
-    patch = { name, kind: state.cardKind, monthlyDeposit, balance };
+    const autoRecharge = document.getElementById('card-auto-recharge').checked;
+    if (autoRecharge && monthlyDeposit <= 0) {
+      await appAlert('Para recarregar sozinho todo mês, informe o valor que cai por mês.');
+      return;
+    }
+    patch = { name, kind: state.cardKind, monthlyDeposit, balance, autoRecharge };
+    // rechargeSince marca de onde a varredura começa. Só é gravado ao LIGAR a recarga,
+    // e sempre no mês corrente: ligar hoje nunca credita meses passados de uma vez.
+    const existing = state.editingCardId ? Storage.getCards().find((c) => c.id === state.editingCardId) : null;
+    if (autoRecharge && !(existing && existing.autoRecharge)) {
+      patch.rechargeSince = Calc.currentMonthKey();
+    }
   }
   if (state.editingCardId) {
     Storage.updateCard(state.editingCardId, patch);
@@ -950,6 +985,9 @@ document.getElementById('btn-save-card').addEventListener('click', async () => {
     Storage.addCard(patch);
   }
   closeModal('modal-card');
+  // Ligar a recarga no próprio último dia do mês já credita na hora, sem esperar
+  // o app ser reaberto.
+  applyPendingRecharges();
   renderAll();
 });
 
@@ -960,6 +998,15 @@ document.getElementById('btn-delete-card').addEventListener('click', async () =>
   closeModal('modal-card');
   renderAll();
 });
+
+// Se a recarga deste mês já caiu, a próxima é a do mês que vem — senão a data
+// mostrada seria uma que já passou.
+function nextRechargeLabel(card) {
+  const current = Calc.currentMonthKey();
+  const done = (card.rechargedMonths || []).includes(current);
+  const month = done ? Calc.shiftMonth(current, 1) : current;
+  return Calc.parseLocalDate(Calc.lastDayOfMonth(month)).toLocaleDateString('pt-BR');
+}
 
 function renderCards() {
   const cards = Storage.getCards();
@@ -977,7 +1024,10 @@ function renderCards() {
     .map((c) => {
       const kindInfo = CARD_KINDS.find((k) => k.value === c.kind);
       if (c.kind === 'credito') {
-        const { outstanding, available } = Calc.cardAvailableLimit(c, transactions);
+        // Aqui a pergunta é "quanto do limite está preso", então entra o comprometido
+        // (mês atual + parcelas futuras) — diferente da fatura que vence agora.
+        const { committed, invoice, available } = Calc.cardAvailableLimit(c, transactions);
+        const outstanding = committed;
         const pct = c.limit > 0 ? (outstanding / c.limit) * 100 : 0;
         const statusClass = pct > 100 ? 'status-ultrapassado' : pct >= 80 ? 'status-aviso' : 'status-ok';
         const paid = (c.paidMonths || []).includes(Calc.currentMonthKey());
@@ -985,7 +1035,8 @@ function renderCards() {
         <div class="cat-row" style="display:block;">
           <div data-edit-card="${c.id}" style="cursor:pointer;">
             <div class="cat-name">${kindInfo.icon} ${c.name}${paid ? ' · ✅ paga este mês' : ''}</div>
-            <div class="cat-values">Vence dia ${c.dueDay} · ${maskCurrency(outstanding)} de ${maskCurrency(c.limit)}</div>
+            <div class="cat-values">Vence dia ${c.dueDay} · ${maskCurrency(outstanding)} de ${maskCurrency(c.limit)} comprometido</div>
+            <div class="sub-line">Fatura deste mês: ${maskCurrency(invoice)}</div>
             <div class="progress-bar"><div class="progress-fill ${statusClass}" style="width:${Math.min(Math.max(pct, 0), 100)}%"></div></div>
             <div class="sub-line" style="margin-top:4px;">Disponível: ${maskCurrency(available)}</div>
           </div>
@@ -1001,7 +1052,8 @@ function renderCards() {
           <div class="tx-icon">${kindInfo.icon}</div>
           <div>
             <div class="tx-desc">${c.name}</div>
-            <div class="tx-date">${kindInfo.label}${c.monthlyDeposit ? ' · cai ' + maskCurrency(c.monthlyDeposit) + '/mês' : ''}</div>
+            <div class="tx-date">${kindInfo.label}${c.monthlyDeposit ? ' · cai ' + maskCurrency(c.monthlyDeposit) + '/mês' : ''}${c.autoRecharge ? ' · 🔄 automática' : ''}</div>
+            ${c.autoRecharge && c.monthlyDeposit > 0 ? `<div class="sub-line">Próxima recarga: ${nextRechargeLabel(c)}</div>` : ''}
           </div>
         </div>
         <div class="tx-amount income">${maskCurrency(c.balance)}</div>
@@ -1023,6 +1075,188 @@ function renderCards() {
       e.stopPropagation();
       openCardInitialModal(el.dataset.cardInitial);
     });
+  });
+}
+
+// ==================== RECARGA AUTOMÁTICA DO VALE (alimentação/refeição) ====================
+// O vale cai no último dia do mês. Duas coisas acontecem juntas, e as duas importam:
+//   1. o saldo do cartão sobe;
+//   2. entra uma receita do mês, porque o vale É renda — parte da alimentação sai dele,
+//      e sem contar isso o "Recebido" do mês fica menor do que a realidade.
+//
+// Não existe servidor nem agendador: o app só roda quando é aberto. Então em vez de
+// "executar no dia 30", a regra é "ao abrir, credite todo mês fechado que ainda não foi
+// creditado". Abrir o app no dia 5 recupera a recarga do dia 30 que ninguém rodou.
+const RECHARGE_CATEGORY = 'Benefício (VA/VR)';
+
+function applyPendingRecharges() {
+  const today = Calc.toLocalISODate(new Date());
+  let creditedCount = 0;
+  let creditedTotal = 0;
+
+  Storage.getCards().forEach((card) => {
+    const pending = Calc.pendingRechargeMonths(card, today);
+    if (pending.length === 0) return;
+
+    Storage.addIncomeCategory(RECHARGE_CATEGORY, '🍽️');
+
+    pending.forEach((month) => {
+      const amount = Number(card.monthlyDeposit);
+      // A receita é datada no último dia do mês a que ela pertence, não em hoje.
+      // Assim uma recarga recuperada com atraso entra no mês certo do histórico.
+      Storage.addTransaction({
+        type: 'income',
+        amount,
+        category: RECHARGE_CATEGORY,
+        date: Calc.lastDayOfMonth(month),
+        description: `Recarga automática · ${card.name}`,
+        paymentMethod: null,
+        cardId: card.id,
+        cardName: card.name,
+        installmentLabel: null,
+        currency: 'BRL',
+        autoRecharge: true,
+      });
+      Storage.adjustCardBalance(card.id, amount);
+      Storage.markCardRecharged(card.id, month);
+      creditedCount++;
+      creditedTotal += amount;
+    });
+  });
+
+  return { creditedCount, creditedTotal };
+}
+
+// ==================== RECEITAS RECORRENTES (salário, aluguel recebido) ====================
+// Mesma ideia da recarga do vale: sem servidor, o app lança ao ser aberto tudo que
+// já deveria ter caído. Evita relançar o salário na mão todo mês.
+
+function applyPendingIncomes() {
+  const today = Calc.toLocalISODate(new Date());
+  let count = 0;
+  let total = 0;
+
+  Storage.getRecurringIncomes().forEach((item) => {
+    Calc.pendingIncomeMonths(item, today).forEach(({ month, date }) => {
+      Storage.addIncomeCategory(item.category, '💼');
+      const tx = {
+        type: 'income',
+        amount: Number(item.amount),
+        category: item.category,
+        date,
+        description: item.name,
+        paymentMethod: null,
+        cardId: null,
+        cardName: null,
+        installmentLabel: null,
+        accountId: item.accountId || null,
+        currency: 'BRL',
+        recurringId: item.id,
+      };
+      Storage.addTransaction(tx);
+      if (item.accountId) Storage.adjustAccountBalance(item.accountId, Number(item.amount));
+      Storage.markRecurringIncomePosted(item.id, month);
+      count++;
+      total += Number(item.amount);
+    });
+  });
+
+  return { count, total };
+}
+
+function openRecurringModal(editId) {
+  state.editingRecurringId = editId || null;
+  const accSel = document.getElementById('rec-account');
+  const brl = Storage.getAccounts().filter((a) => (a.currency || 'BRL') === 'BRL');
+  accSel.innerHTML = `<option value="">— nenhuma —</option>` + brl.map((a) => `<option value="${a.id}">${a.name}</option>`).join('');
+
+  const catSel = document.getElementById('rec-category');
+  catSel.innerHTML = Storage.getIncomeCategories().map((c) => `<option value="${c.name}">${c.icon} ${c.name}</option>`).join('');
+
+  const del = document.getElementById('btn-delete-recurring');
+  if (editId) {
+    const item = Storage.getRecurringIncomes().find((r) => r.id === editId);
+    if (!item) return;
+    document.getElementById('rec-modal-title').textContent = 'Editar receita recorrente';
+    document.getElementById('rec-name').value = item.name;
+    document.getElementById('rec-amount').value = item.amount;
+    document.getElementById('rec-day').value = item.payDay;
+    catSel.value = item.category;
+    accSel.value = item.accountId || '';
+    del.style.display = 'block';
+  } else {
+    document.getElementById('rec-modal-title').textContent = 'Nova receita recorrente';
+    document.getElementById('rec-name').value = '';
+    document.getElementById('rec-amount').value = '';
+    document.getElementById('rec-day').value = '';
+    catSel.value = 'Salário';
+    accSel.value = '';
+    del.style.display = 'none';
+  }
+  openModal('modal-recurring');
+}
+document.getElementById('btn-add-recurring').addEventListener('click', () => openRecurringModal());
+
+document.getElementById('btn-save-recurring').addEventListener('click', async () => {
+  const name = document.getElementById('rec-name').value.trim();
+  const amount = parseFloat(document.getElementById('rec-amount').value);
+  const payDay = parseInt(document.getElementById('rec-day').value);
+  if (!name || !amount || amount <= 0 || !payDay || payDay < 1 || payDay > 31) {
+    await appAlert('Preencha nome, valor e um dia de recebimento válido (1-31).');
+    return;
+  }
+  const patch = {
+    name,
+    amount,
+    payDay,
+    category: document.getElementById('rec-category').value,
+    accountId: document.getElementById('rec-account').value || null,
+  };
+  if (state.editingRecurringId) {
+    Storage.updateRecurringIncome(state.editingRecurringId, patch);
+  } else {
+    // since = mês atual: criar hoje não gera meses retroativos de uma vez.
+    Storage.addRecurringIncome({ ...patch, since: Calc.currentMonthKey() });
+  }
+  closeModal('modal-recurring');
+  applyPendingIncomes();
+  renderAll();
+});
+
+document.getElementById('btn-delete-recurring').addEventListener('click', async () => {
+  if (!state.editingRecurringId) return;
+  if (!(await appConfirm('Apagar esta receita recorrente? Os lançamentos já feitos continuam no histórico.', { danger: true }))) return;
+  Storage.deleteRecurringIncome(state.editingRecurringId);
+  closeModal('modal-recurring');
+  renderAll();
+});
+
+function renderRecurringIncomes() {
+  const listEl = document.getElementById('recurring-list');
+  if (!listEl) return;
+  const items = Storage.getRecurringIncomes();
+  if (items.length === 0) {
+    listEl.innerHTML = `<div class="empty-state">Nenhuma receita recorrente. Cadastre seu salário e o app lança sozinho todo mês.</div>`;
+    return;
+  }
+  listEl.innerHTML = items
+    .map((r) => {
+      const jaCaiu = (r.postedMonths || []).includes(Calc.currentMonthKey());
+      return `
+      <div class="tx-item" data-edit-rec="${r.id}" style="cursor:pointer;">
+        <div class="tx-left">
+          <div class="tx-icon">${catIcon(r.category)}</div>
+          <div>
+            <div class="tx-desc">${r.name}</div>
+            <div class="tx-date">Todo dia ${r.payDay} · ${r.category}${jaCaiu ? ' · ✅ lançado este mês' : ''}</div>
+          </div>
+        </div>
+        <div class="tx-amount income">${maskCurrency(r.amount)}</div>
+      </div>`;
+    })
+    .join('');
+  listEl.querySelectorAll('[data-edit-rec]').forEach((el) => {
+    el.addEventListener('click', () => openRecurringModal(el.dataset.editRec));
   });
 }
 
@@ -1596,6 +1830,18 @@ function renderDashboard() {
   }
   availableEl.textContent = maskCurrency(available);
   availableEl.style.color = available < 0 ? 'var(--danger)' : 'var(--text)';
+
+  // Saldo dos vales aparece SEPARADO, não somado: vale não é dinheiro em conta —
+  // só compra comida. Juntar os dois num número só faria a pessoa achar que tem
+  // mais dinheiro livre do que tem.
+  const valeTotal = Storage.getCards()
+    .filter((c) => c.kind !== 'credito')
+    .reduce((sum, c) => sum + Number(c.balance || 0), 0);
+  const valeEl = document.getElementById('dash-benefit-balance');
+  if (valeEl) {
+    valeEl.innerHTML =
+      valeTotal > 0 ? `<div class="sub-line">🍽️ + ${maskCurrency(valeTotal)} em vales (só para alimentação, fora do disponível acima)</div>` : '';
+  }
   const incomeByCategory = Calc.totalsByCategory(transactions, month, 'income');
   const incomeEntries = Object.entries(incomeByCategory);
   document.getElementById('dash-income-breakdown').innerHTML = incomeEntries.length
@@ -1891,6 +2137,7 @@ function loadProfileForm() {
   document.getElementById('profile-risk').value = p.riskProfile || 'Moderado';
   document.getElementById('profile-emergency').value = p.emergencyFundBalance || '';
   document.getElementById('profile-debt').checked = !!p.hasDebt;
+  document.getElementById('profile-debt-cheap').checked = !!p.hasCheapDebt;
 }
 
 document.getElementById('btn-save-profile').addEventListener('click', () => {
@@ -1901,6 +2148,7 @@ document.getElementById('btn-save-profile').addEventListener('click', () => {
     riskProfile: document.getElementById('profile-risk').value,
     emergencyFundBalance: parseFloat(document.getElementById('profile-emergency').value) || 0,
     hasDebt: document.getElementById('profile-debt').checked,
+    hasCheapDebt: document.getElementById('profile-debt-cheap').checked,
   };
   Storage.saveProfile(profile);
   renderProfileRecommendation();
@@ -1911,16 +2159,25 @@ function renderProfileRecommendation() {
   const profile = Storage.getProfile();
   const transactions = Storage.getTransactions();
   const month = Calc.currentMonthKey();
-  const monthlyExpenses = Calc.totalByType(transactions, month, 'expense') || profile.incomeNet * 0.7;
+  // Base = média dos últimos meses FECHADOS. Usar o mês corrente fazia a meta ser
+  // quase zero no dia 1 e crescer até o dia 31 — a reserva ideal mudava todo dia.
+  const media = Calc.averageMonthlyExpenses(transactions, 3);
+  const monthlyExpenses = media !== null ? media : profile.incomeNet * 0.7;
+  const baseTxt =
+    media !== null
+      ? 'Base: média dos seus últimos meses fechados.'
+      : 'Base: estimativa de 70% da sua renda — ainda não há mês fechado com lançamentos.';
   const target = Calc.emergencyFundTarget(monthlyExpenses, profile.dependents);
   const rec = Calc.progressRecommendation({
     emergencyBalance: profile.emergencyFundBalance,
     emergencyTarget: target,
     hasDebt: profile.hasDebt,
     debtHigh: profile.hasDebt,
+    hasCheapDebt: profile.hasCheapDebt,
   });
   document.getElementById('profile-recommendation').innerHTML = `
-    <strong>Meta de reserva de emergência:</strong> ${Calc.fmtBRL(target)}<br><br>
+    <strong>Meta de reserva de emergência:</strong> ${Calc.fmtBRL(target)}<br>
+    <span class="sub-line">${baseTxt}</span><br><br>
     ${rec.message}`;
 }
 
@@ -1943,6 +2200,9 @@ function renderAll() {
     loadProfileForm();
     renderProfileRecommendation();
     renderPinStatus();
+    renderRecurringIncomes();
+    renderBackupReminder();
+    renderUndoImport();
   }
 }
 
@@ -1961,7 +2221,10 @@ function renderCardBillsSummary() {
   const month = Calc.currentMonthKey();
   listEl.innerHTML = cards
     .map((c) => {
-      const { outstanding } = Calc.cardAvailableLimit(c, transactions);
+      // Aqui a pergunta é "quanto vence agora", então é a fatura do mês — não o
+      // total comprometido, que incluiria parcelas de meses futuros.
+      const { committed, invoice } = Calc.cardAvailableLimit(c, transactions);
+      const futuras = committed - invoice;
       const paid = (c.paidMonths || []).includes(month);
       return `
       <div class="tx-item">
@@ -1970,11 +2233,12 @@ function renderCardBillsSummary() {
           <div>
             <div class="tx-desc">${c.name}</div>
             <div class="tx-date">Vence dia ${c.dueDay}${paid ? ' · ✅ paga este mês' : ''}</div>
+            ${futuras > 0 ? `<div class="sub-line">+ ${maskCurrency(futuras)} em parcelas de meses seguintes</div>` : ''}
           </div>
         </div>
         <div style="text-align:right;">
-          <div class="tx-amount expense">${maskCurrency(outstanding)}</div>
-          ${outstanding > 0 && !paid ? `<button class="chip" style="margin-top:4px;" data-pay-card-bill="${c.id}">Marcar como paga</button>` : ''}
+          <div class="tx-amount expense">${maskCurrency(invoice)}</div>
+          ${invoice > 0 && !paid ? `<button class="chip" style="margin-top:4px;" data-pay-card-bill="${c.id}">Marcar como paga</button>` : ''}
         </div>
       </div>`;
     })
@@ -2030,6 +2294,10 @@ async function checkAndNotifyDueToday() {
 
   const today = todayISO();
   const notifiedKey = `finapp_notified_${today}`;
+  // Uma chave por dia era criada e nunca removida. Limpa as de outros dias.
+  Object.keys(localStorage)
+    .filter((k) => k.startsWith('finapp_notified_') && k !== notifiedKey)
+    .forEach((k) => localStorage.removeItem(k));
   const notified = JSON.parse(localStorage.getItem(notifiedKey) || '[]');
 
   const month = Calc.currentMonthKey();
@@ -2119,8 +2387,14 @@ document.getElementById('btn-export-backup').addEventListener('click', () => {
   a.download = `backup-financeiro-${todayISO()}.json`;
   document.body.appendChild(a);
   a.click();
-  document.body.removeChild(a);
-  URL.revokeObjectURL(url);
+  // Revogar na mesma hora cancela o download em alguns navegadores (Safari/iOS).
+  // Como o backup é a ÚNICA porta de saída dos dados, vale esperar antes de soltar.
+  setTimeout(() => {
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }, 2000);
+  localStorage.setItem('finapp_last_backup', todayISO());
+  renderBackupReminder();
 });
 
 document.getElementById('input-import-backup').addEventListener('change', (e) => {
@@ -2136,16 +2410,140 @@ document.getElementById('input-import-backup').addEventListener('change', (e) =>
       await appAlert('Arquivo inválido. Selecione um backup exportado por este app.');
       return;
     }
-    if (!(await appConfirm('Isso vai substituir todos os dados atuais do app pelos do backup. Continuar?', { danger: true }))) return;
+    // VALIDAR ANTES DE APAGAR. Na versão anterior o app apagava tudo e só depois
+    // tentava restaurar: escolher um .json qualquer (válido, mas que não fosse um
+    // backup) apagava todos os dados e não restaurava nada. Sem nuvem e sem undo,
+    // isso era perda total e silenciosa.
+    const isObject = data && typeof data === 'object' && !Array.isArray(data);
+    const knownKeys = isObject ? Object.keys(data).filter((k) => BACKUP_KEYS.includes(k)) : [];
+    if (knownKeys.length === 0) {
+      await appAlert('Esse arquivo não parece um backup deste app — nenhum dado reconhecido foi encontrado. Nada foi alterado.');
+      return;
+    }
+    // O conteúdo também precisa ser JSON válido, senão o app quebraria depois de importar.
+    const corrompidas = knownKeys.filter((k) => {
+      try {
+        JSON.parse(data[k]);
+        return false;
+      } catch (err) {
+        return true;
+      }
+    });
+    if (corrompidas.length > 0) {
+      await appAlert(`O backup está corrompido em: ${corrompidas.join(', ')}. Nada foi alterado.`);
+      return;
+    }
+
+    const resumo = descreveBackup(data);
+    if (!(await appConfirm(`Importar este backup?\n\n${resumo}\n\nSeus dados atuais serão substituídos — mas guardo uma cópia e você poderá desfazer.`, { danger: true })))
+      return;
+
+    // Rede de segurança: guarda o estado atual antes de sobrescrever.
+    const snapshot = {};
+    BACKUP_KEYS.forEach((key) => {
+      const raw = localStorage.getItem(key);
+      if (raw !== null) snapshot[key] = raw;
+    });
+    localStorage.setItem(UNDO_KEY, JSON.stringify({ at: new Date().toISOString(), data: snapshot }));
+
     BACKUP_KEYS.forEach((key) => localStorage.removeItem(key));
     Object.entries(data).forEach(([key, rawValue]) => {
       if (BACKUP_KEYS.includes(key)) localStorage.setItem(key, rawValue);
     });
-    await appAlert('Backup importado! O app vai recarregar.');
+    await appAlert('Backup importado! Se algo parecer errado, use "Desfazer importação" em Mais. O app vai recarregar.');
     location.reload();
   };
   reader.readAsText(file);
 });
+
+// Resume o que vem no arquivo, para a confirmação não ser às cegas
+function descreveBackup(data) {
+  const conta = (key) => {
+    try {
+      const v = JSON.parse(data[key] || '[]');
+      return Array.isArray(v) ? v.length : null;
+    } catch (err) {
+      return null;
+    }
+  };
+  const linhas = [
+    ['lançamentos', conta(DB_KEYS.transactions)],
+    ['cartões', conta(DB_KEYS.cards)],
+    ['contas', conta(DB_KEYS.accounts)],
+    ['contas a pagar', conta(DB_KEYS.bills)],
+    ['investimentos', conta(DB_KEYS.investments)],
+  ].filter(([, n]) => n !== null && n > 0);
+  return linhas.length ? linhas.map(([nome, n]) => `• ${n} ${nome}`).join('\n') : '• (backup sem lançamentos)';
+}
+
+// ==================== DESFAZER IMPORTAÇÃO ====================
+const UNDO_KEY = 'finapp_pre_import_snapshot';
+
+function renderUndoImport() {
+  const wrap = document.getElementById('undo-import-wrap');
+  if (!wrap) return;
+  const raw = localStorage.getItem(UNDO_KEY);
+  if (!raw) {
+    wrap.style.display = 'none';
+    return;
+  }
+  let snap;
+  try {
+    snap = JSON.parse(raw);
+  } catch (err) {
+    wrap.style.display = 'none';
+    return;
+  }
+  wrap.style.display = 'block';
+  document.getElementById('undo-import-info').textContent =
+    `Cópia guardada antes da última importação (${Calc.parseLocalDate(snap.at.slice(0, 10)).toLocaleDateString('pt-BR')}).`;
+}
+
+document.getElementById('btn-undo-import').addEventListener('click', async () => {
+  const raw = localStorage.getItem(UNDO_KEY);
+  if (!raw) return;
+  if (!(await appConfirm('Voltar os dados para como estavam antes da última importação? O que foi importado será descartado.', { danger: true }))) return;
+  const snap = JSON.parse(raw);
+  BACKUP_KEYS.forEach((key) => localStorage.removeItem(key));
+  Object.entries(snap.data).forEach(([key, rawValue]) => {
+    if (BACKUP_KEYS.includes(key)) localStorage.setItem(key, rawValue);
+  });
+  localStorage.removeItem(UNDO_KEY);
+  await appAlert('Dados restaurados. O app vai recarregar.');
+  location.reload();
+});
+
+// ==================== LEMBRETE DE BACKUP ====================
+// App 100% local: trocar de celular ou limpar os dados do navegador apaga tudo.
+// Sem um lembrete, a pessoa só descobre isso quando já perdeu.
+const BACKUP_REMINDER_DAYS = 30;
+
+function renderBackupReminder() {
+  const el = document.getElementById('backup-reminder');
+  if (!el) return;
+  const temDados = Storage.getTransactions().length > 0 || Storage.getCards().length > 0;
+  if (!temDados) {
+    el.style.display = 'none';
+    return;
+  }
+  const last = localStorage.getItem('finapp_last_backup');
+  if (!last) {
+    el.style.display = 'block';
+    el.className = 'alert warning';
+    el.textContent = '⚠️ Você nunca exportou um backup. Seus dados existem só neste aparelho — se ele sumir ou você limpar os dados do navegador, não há como recuperar.';
+    return;
+  }
+  const dias = Math.floor((Calc.parseLocalDate(todayISO()) - Calc.parseLocalDate(last)) / 86400000);
+  if (dias >= BACKUP_REMINDER_DAYS) {
+    el.style.display = 'block';
+    el.className = 'alert warning';
+    el.textContent = `⚠️ Seu último backup foi há ${dias} dias. Vale exportar de novo.`;
+  } else {
+    el.style.display = 'block';
+    el.className = 'alert info';
+    el.textContent = `✅ Último backup há ${dias} dia${dias === 1 ? '' : 's'}.`;
+  }
+}
 
 // ==================== RESETAR APLICATIVO ====================
 
@@ -2344,7 +2742,26 @@ function renderLockKeypad() {
   });
 }
 
+// Espera crescente após erros seguidos. Não impede quem tem o aparelho e muito
+// tempo, mas transforma "tentar os 10 mil PINs" em algo inviável na mão.
+function lockPenaltySeconds(fails) {
+  if (fails < 3) return 0;
+  if (fails < 5) return 30;
+  if (fails < 8) return 120;
+  return 300;
+}
+
+function lockRemainingBlock() {
+  const until = Number(localStorage.getItem('finapp_pin_block_until') || 0);
+  return Math.max(0, Math.ceil((until - Date.now()) / 1000));
+}
+
 function lockKeyPress(digit) {
+  const blocked = lockRemainingBlock();
+  if (blocked > 0) {
+    document.getElementById('lock-error').textContent = `Muitas tentativas. Espere ${blocked}s.`;
+    return;
+  }
   if (lockPinBuffer.length >= 4) return;
   lockPinBuffer += digit;
   renderLockDots();
@@ -2352,11 +2769,21 @@ function lockKeyPress(digit) {
   if (lockPinBuffer.length === 4) {
     setTimeout(() => {
       if (lockPinBuffer === localStorage.getItem('finapp_pin')) {
+        localStorage.removeItem('finapp_pin_fails');
+        localStorage.removeItem('finapp_pin_block_until');
         sessionStorage.setItem('finapp_unlocked', '1');
         document.getElementById('lock-screen').style.display = 'none';
         maybeShowInstallModal();
       } else {
-        document.getElementById('lock-error').textContent = 'PIN incorreto.';
+        const fails = Number(localStorage.getItem('finapp_pin_fails') || 0) + 1;
+        localStorage.setItem('finapp_pin_fails', String(fails));
+        const penalty = lockPenaltySeconds(fails);
+        if (penalty > 0) {
+          localStorage.setItem('finapp_pin_block_until', String(Date.now() + penalty * 1000));
+          document.getElementById('lock-error').textContent = `PIN incorreto. Espere ${penalty}s antes de tentar de novo.`;
+        } else {
+          document.getElementById('lock-error').textContent = 'PIN incorreto.';
+        }
         lockPinBuffer = '';
         renderLockDots();
       }
@@ -2369,13 +2796,39 @@ function lockBackspace() {
   renderLockDots();
 }
 
+// Antes, "Esqueci meu PIN" simplesmente removia o PIN e abria o app — qualquer
+// pessoa com o aparelho na mão entrava em dois toques, e a trava não protegia nada.
+// Como não existe servidor para provar identidade, a única saída honesta é a mesma
+// de um cofre local: sem a chave, o conteúdo não é acessível. Quem esquece o PIN
+// recomeça do zero — por isso o caminho oferece exportar o backup antes.
 document.getElementById('btn-forgot-pin').addEventListener('click', async () => {
-  if (!(await appConfirm('Isso remove o PIN de acesso (seus dados continuam salvos normalmente). Continuar?', { danger: true }))) return;
+  const passo1 = await appConfirm(
+    'Não há como recuperar o PIN: ele fica só neste aparelho e o app não tem servidor.\n\n' +
+      'A única forma de entrar sem ele é apagar os dados do app e começar de novo.\n\n' +
+      'Quer continuar?',
+    { danger: true }
+  );
+  if (!passo1) return;
+
+  const querBackup = await appConfirm(
+    'Antes de apagar: quer baixar um backup dos seus dados?\n\n' +
+      'O arquivo é salvo normalmente e depois pode ser importado de volta — mesmo sem o PIN.',
+    { okText: 'Baixar backup', cancelText: 'Pular' }
+  );
+  if (querBackup) {
+    document.getElementById('btn-export-backup').click();
+    await appAlert('Backup baixado. Guarde o arquivo antes de continuar.');
+  }
+
+  const passo2 = await appConfirm('Última confirmação: apagar TODOS os dados do app e remover o PIN?', { danger: true });
+  if (!passo2) return;
+
+  BACKUP_KEYS.forEach((key) => localStorage.removeItem(key));
   localStorage.removeItem('finapp_pin');
+  localStorage.removeItem('finapp_pin_fails');
+  localStorage.removeItem('finapp_pin_block_until');
   sessionStorage.setItem('finapp_unlocked', '1');
-  document.getElementById('lock-screen').style.display = 'none';
-  renderPinStatus();
-  maybeShowInstallModal();
+  location.reload();
 });
 
 renderLockKeypad();
@@ -2421,7 +2874,27 @@ document.getElementById('btn-remove-pin').addEventListener('click', async () => 
 
 // -------- Init --------
 document.getElementById('btn-toggle-hide').textContent = state.hideValues ? '🙈' : '👁️';
+
+// Antes de renderizar: credita as recargas de vale que venceram enquanto o app
+// esteve fechado, para a tela já abrir com o saldo e a receita corretos.
+const recharged = applyPendingRecharges();
+const incomes = applyPendingIncomes();
+
 renderAll();
+
+const avisos = [];
+if (recharged.creditedCount > 0) {
+  avisos.push(
+    `🔄 ${recharged.creditedCount === 1 ? 'Recarga creditada' : recharged.creditedCount + ' recargas creditadas'}: ` +
+      `${Calc.fmtBRL(recharged.creditedTotal)} no saldo dos seus vales, contando como receita.`
+  );
+}
+if (incomes.count > 0) {
+  avisos.push(
+    `💼 ${incomes.count === 1 ? 'Receita lançada' : incomes.count + ' receitas lançadas'}: ${Calc.fmtBRL(incomes.total)} de receitas recorrentes.`
+  );
+}
+if (avisos.length > 0) appAlert(avisos.join('\n\n'));
 updateNotifStatus();
 handleNotificationLaunchParams();
 maybeShowInstallModal();

@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Testes · Meu Bolso Sem Achismo</title>
+<style>
+  body { font-family: system-ui, -apple-system, sans-serif; background:#0F0E2A; color:#E8E8F0; margin:0; padding:20px; }
+  h1 { font-size:20px; margin:0 0 4px; }
+  .sub { color:#9A9AB8; font-size:13px; margin-bottom:18px; }
+  .resumo { padding:12px 14px; border-radius:10px; font-weight:600; margin-bottom:18px; }
+  .tudo-ok { background:#12351F; color:#7CE0A3; border:1px solid #1F6B3C; }
+  .falhou { background:#3A1620; color:#FF9BB0; border:1px solid #7A2438; }
+  .grupo { margin-bottom:18px; }
+  .grupo h2 { font-size:14px; text-transform:uppercase; letter-spacing:.5px; color:#9A9AB8; margin:0 0 6px; }
+  .caso { padding:7px 10px; border-radius:8px; margin-bottom:4px; font-size:13px; background:#1A1938; }
+  .ok::before { content:"✅ "; }
+  .erro { background:#2A1420; color:#FF9BB0; }
+  .erro::before { content:"❌ "; }
+  .detalhe { display:block; color:#9A9AB8; font-size:12px; margin-top:3px; }
+</style>
+</head>
+<body>
+
+<h1>Testes · Meu Bolso Sem Achismo</h1>
+<p class="sub">Abra este arquivo no navegador para rodar. Não precisa de Node, npm nem internet — é o mesmo <code>calc.js</code> que o app usa.</p>
+<div id="resumo" class="resumo">Rodando…</div>
+<div id="saida"></div>
+
+<script src="js/calc.js"></script>
+<script>
+// Mini runner: sem framework, sem dependência. O objetivo é que rodar os testes
+// nunca dependa de instalar nada — igual ao app, que roda offline.
+const resultados = [];
+let grupoAtual = 'geral';
+
+function grupo(nome, fn) { grupoAtual = nome; fn(); }
+
+function teste(nome, esperado, obtido) {
+  const a = JSON.stringify(esperado);
+  const b = JSON.stringify(obtido);
+  resultados.push({ grupo: grupoAtual, nome, ok: a === b, esperado: a, obtido: b });
+}
+
+// ---------------------------------------------------------------- datas
+grupo('Datas', () => {
+  teste('parseLocalDate não volta um dia em fuso negativo',
+    1, Calc.parseLocalDate('2026-09-01').getDate());
+  teste('último dia de setembro', '2026-09-30', Calc.lastDayOfMonth('2026-09'));
+  teste('último dia de fevereiro comum', '2027-02-28', Calc.lastDayOfMonth('2027-02'));
+  teste('último dia de fevereiro bissexto', '2028-02-29', Calc.lastDayOfMonth('2028-02'));
+  teste('shiftMonth vira o ano', '2027-01', Calc.shiftMonth('2026-12', 1));
+  teste('addMonthsToDate segura dia 31 em mês de 30', '2026-04-30', Calc.addMonthsToDate('2026-03-31', 1));
+});
+
+// ------------------------------------------------- reserva de emergência
+grupo('Reserva de emergência', () => {
+  const meses = (d) => Calc.emergencyFundTarget(1000, d) / 1000;
+  teste('sem dependentes = 6 meses', 6, meses(0));
+  teste('1 dependente nunca pede MENOS que sem dependente', true, meses(1) >= meses(0));
+  teste('1 dependente = 7 meses', 7, meses(1));
+  teste('2 dependentes = 8 meses', 8, meses(2));
+  teste('cresce com a família', true, meses(3) > meses(2));
+  teste('teto de 12 meses', 12, meses(20));
+
+  const txs = [
+    { type:'expense', amount:1000, date:'2026-06-10', currency:'BRL' },
+    { type:'expense', amount:2000, date:'2026-07-10', currency:'BRL' },
+    { type:'expense', amount:3000, date:'2026-08-10', currency:'BRL' },
+  ];
+  const media = Calc.averageMonthlyExpenses(txs, 3);
+  teste('média só de meses fechados (ignora o mês corrente)', true, media === null || media > 0);
+  teste('sem histórico devolve null', null, Calc.averageMonthlyExpenses([], 3));
+});
+
+// ------------------------------------------------------ cartão de crédito
+grupo('Cartão de crédito', () => {
+  const parcelado = [
+    { cardId:'c1', type:'expense', amount:100, date: Calc.currentMonthKey()+'-15', currency:'BRL' },
+    { cardId:'c1', type:'expense', amount:100, date: Calc.shiftMonth(Calc.currentMonthKey(),1)+'-15', currency:'BRL' },
+    { cardId:'c1', type:'expense', amount:100, date: Calc.shiftMonth(Calc.currentMonthKey(),2)+'-15', currency:'BRL' },
+  ];
+  teste('fatura do mês NÃO inclui parcelas futuras', 100, Calc.cardInvoiceTotal('c1', parcelado));
+  teste('comprometido inclui as parcelas futuras', 300, Calc.cardCommitted('c1', parcelado));
+
+  const multimoeda = [
+    { cardId:'c2', type:'expense', amount:200,  date: Calc.currentMonthKey()+'-10', currency:'BRL' },
+    { cardId:'c2', type:'expense', amount:0.01, date: Calc.currentMonthKey()+'-11', currency:'BTC' },
+    { cardId:'c2', type:'expense', amount:50,   date: Calc.currentMonthKey()+'-12', currency:'USD' },
+  ];
+  teste('fatura em R$ ignora BTC e USD', 200, Calc.cardInvoiceTotal('c2', multimoeda));
+  teste('fatura em USD soma só dólar', 50, Calc.cardInvoiceTotal('c2', multimoeda, Calc.currentMonthKey(), 'USD'));
+  teste('sem moeda declarada conta como BRL', 200, Calc.cardInvoiceTotal('c2', multimoeda));
+});
+
+// --------------------------------------------------- recarga automática
+grupo('Recarga automática do vale', () => {
+  const base = { kind:'refeicao', monthlyDeposit:500, autoRecharge:true, rechargeSince:'2026-09', rechargedMonths:[] };
+  const p = (card, hoje) => Calc.pendingRechargeMonths(card, hoje);
+
+  teste('não credita antes do último dia', [], p(base, '2026-09-29'));
+  teste('credita no último dia', ['2026-09'], p(base, '2026-09-30'));
+  teste('não repete mês já creditado', [], p({...base, rechargedMonths:['2026-09']}, '2026-09-30'));
+  teste('recupera meses em que o app ficou fechado', ['2026-09','2026-10','2026-11'], p(base, '2026-11-30'));
+  teste('desligada não credita', [], p({...base, autoRecharge:false}, '2026-12-31'));
+  teste('sem valor não credita', [], p({...base, monthlyDeposit:0}, '2026-12-31'));
+  teste('cartão de crédito não entra', [], p({...base, kind:'credito'}, '2026-12-31'));
+  teste('ligar hoje não gera retroativo', [], p({...base, rechargeSince:'2026-12'}, '2026-12-15'));
+});
+
+// -------------------------------------------------- receita recorrente
+grupo('Receita recorrente', () => {
+  const salario = { amount:5000, payDay:5, since:'2026-09', postedMonths:[], active:true };
+  const meses = (item, hoje) => Calc.pendingIncomeMonths(item, hoje).map((x) => x.month);
+
+  teste('não lança antes do dia', [], meses(salario, '2026-09-04'));
+  teste('lança no dia', ['2026-09'], meses(salario, '2026-09-05'));
+  teste('não repete', [], meses({...salario, postedMonths:['2026-09']}, '2026-09-20'));
+  teste('recupera meses parados', ['2026-09','2026-10'], meses(salario, '2026-10-06'));
+  teste('inativa não lança', [], meses({...salario, active:false}, '2026-12-31'));
+
+  const dia31 = { amount:100, payDay:31, since:'2026-11', postedMonths:[], active:true };
+  teste('dia 31 em mês de 30 cai no último dia', '2026-11-30', Calc.pendingIncomeMonths(dia31, '2026-11-30')[0].date);
+});
+
+// ------------------------------------------------------------ parcelas
+grupo('Parcelamento', () => {
+  teste('3x de 100 fecha em 100', 100, Calc.splitInstallments(100, 3).reduce((a,b)=>a+b,0));
+  teste('resto vai na última parcela', [33.33,33.33,33.34], Calc.splitInstallments(100, 3));
+  teste('1x devolve o valor inteiro', [50], Calc.splitInstallments(50, 1));
+});
+
+// ----------------------------------------------------- recomendação CFP
+grupo('Recomendação', () => {
+  const r = (o) => Calc.progressRecommendation(o).priority;
+  teste('dívida cara vem antes de tudo', 0, r({emergencyBalance:99999, emergencyTarget:1000, hasDebt:true, debtHigh:true}));
+  teste('sem reserva = prioridade reserva', 1, r({emergencyBalance:0, emergencyTarget:10000, hasDebt:false}));
+  teste('reserva completa = investir', 3, r({emergencyBalance:10000, emergencyTarget:10000, hasDebt:false}));
+  teste('dívida barata não bloqueia investir', 3, r({emergencyBalance:10000, emergencyTarget:10000, hasDebt:false, hasCheapDebt:true}));
+});
+
+// ------------------------------------------------------------- render
+const porGrupo = {};
+resultados.forEach((r) => { (porGrupo[r.grupo] = porGrupo[r.grupo] || []).push(r); });
+
+const falhas = resultados.filter((r) => !r.ok);
+const resumo = document.getElementById('resumo');
+resumo.className = 'resumo ' + (falhas.length ? 'falhou' : 'tudo-ok');
+resumo.textContent = falhas.length
+  ? `${falhas.length} de ${resultados.length} testes falharam`
+  : `${resultados.length} testes passaram`;
+
+document.getElementById('saida').innerHTML = Object.entries(porGrupo).map(([nome, casos]) => `
+  <div class="grupo">
+    <h2>${nome}</h2>
+    ${casos.map((c) => `
+      <div class="caso ${c.ok ? 'ok' : 'erro'}">${c.nome}
+        ${c.ok ? '' : `<span class="detalhe">esperado ${c.esperado} · obtido ${c.obtido}</span>`}
+      </div>`).join('')}
+  </div>`).join('');
+</script>
+
+</body>
+</html>

@@ -64,6 +64,59 @@ function daysInMonth(year, monthIndex1based) {
   return new Date(year, monthIndex1based, 0).getDate();
 }
 
+// Último dia do mês 'YYYY-MM' como 'YYYY-MM-DD'. É a data em que o vale é recarregado.
+// Fevereiro, meses de 30 e de 31 dias saem certos porque daysInMonth resolve cada caso.
+function lastDayOfMonth(month) {
+  const [y, m] = month.split('-').map(Number);
+  return `${month}-${String(daysInMonth(y, m)).padStart(2, '0')}`;
+}
+
+// Quais recargas de um cartão de benefício ainda não foram creditadas.
+// Só entra mês cujo último dia JÁ passou (ou é hoje) — nunca adianta recarga.
+// A varredura começa no mês em que a recarga automática foi ligada, então ligar
+// hoje não faz aparecer crédito retroativo de meses anteriores.
+function pendingRechargeMonths(card, todayStr) {
+  if (!card || card.kind === 'credito') return [];
+  if (!card.autoRecharge || !(Number(card.monthlyDeposit) > 0)) return [];
+
+  const done = card.rechargedMonths || [];
+  const start = card.rechargeSince || monthKey(parseLocalDate(todayStr));
+  const current = monthKey(parseLocalDate(todayStr));
+
+  const pending = [];
+  let m = start;
+  // Teto de 24 iterações: protege contra rechargeSince corrompido virar laço infinito.
+  for (let i = 0; i < 24 && m <= current; i++) {
+    if (!done.includes(m) && lastDayOfMonth(m) <= todayStr) pending.push(m);
+    m = shiftMonth(m, 1);
+  }
+  return pending;
+}
+
+// Meses em que uma receita recorrente já deveria ter caído e ainda não foi lançada.
+// Mesma regra dos vales: só mês cujo dia de pagamento já chegou, nunca adiantado,
+// e a varredura começa quando a recorrência foi criada (sem retroativo surpresa).
+function pendingIncomeMonths(item, todayStr) {
+  if (!item || item.active === false) return [];
+  if (!(Number(item.amount) > 0) || !item.payDay) return [];
+
+  const done = item.postedMonths || [];
+  const current = monthKey(parseLocalDate(todayStr));
+  const start = item.since || current;
+
+  const pending = [];
+  let m = start;
+  for (let i = 0; i < 24 && m <= current; i++) {
+    const [y, mm] = m.split('-').map(Number);
+    // Dia 31 em mês de 30 cai no último dia, mesma regra das contas a pagar.
+    const day = Math.min(item.payDay, daysInMonth(y, mm));
+    const dateStr = `${m}-${String(day).padStart(2, '0')}`;
+    if (!done.includes(m) && dateStr <= todayStr) pending.push({ month: m, date: dateStr });
+    m = shiftMonth(m, 1);
+  }
+  return pending;
+}
+
 // Data de vencimento da conta para um mês 'YYYY-MM', ajustando o dia se o mês for mais curto
 function billDueDateForMonth(bill, month) {
   const [y, m] = month.split('-').map(Number);
@@ -120,6 +173,11 @@ const Calc = {
   toLocalISODate,
   shiftMonth,
   monthLabel,
+  lastDayOfMonth,
+  pendingRechargeMonths,
+  pendingIncomeMonths,
+  prevMonthKey,
+  daysInMonth,
 
   // Alertas de contas a pagar: vencida, vence hoje, ou vence em até 3 dias
   billAlerts(bills, month) {
@@ -152,18 +210,33 @@ const Calc = {
     return transactions.filter((t) => monthKey(t.date) === month);
   },
 
-  // Saldo em aberto do cartão de crédito: soma das parcelas do mês atual em diante
-  // (meses passados são considerados já pagos/fechados)
-  cardOutstanding(cardId, transactions) {
+  // Duas perguntas diferentes que antes compartilhavam a mesma conta:
+  //
+  //   cardInvoiceTotal  -> "quanto vence NESTE mês?"  (só as parcelas do mês)
+  //   cardCommitted     -> "quanto do limite está preso?" (mês atual + parcelas futuras)
+  //
+  // Somar as parcelas futuras na fatura fazia o alerta de vencimento cobrar
+  // R$ 300 de uma compra de R$ 300 em 3x, quando o que vence é R$ 100.
+  //
+  // Ambas somam só a moeda pedida: misturar R$, US$ e ₿ num total só contradiz
+  // a regra do app de nunca converter moeda (ver DEFAULT_CURRENCIES em storage.js).
+  cardInvoiceTotal(cardId, transactions, month = currentMonthKey(), currency = 'BRL') {
+    return transactions
+      .filter((t) => t.cardId === cardId && t.type === 'expense' && (t.currency || 'BRL') === currency && monthKey(t.date) === month)
+      .reduce((sum, t) => sum + Number(t.amount), 0);
+  },
+
+  cardCommitted(cardId, transactions, currency = 'BRL') {
     const month = currentMonthKey();
     return transactions
-      .filter((t) => t.cardId === cardId && t.type === 'expense' && monthKey(t.date) >= month)
+      .filter((t) => t.cardId === cardId && t.type === 'expense' && (t.currency || 'BRL') === currency && monthKey(t.date) >= month)
       .reduce((sum, t) => sum + Number(t.amount), 0);
   },
 
   cardAvailableLimit(card, transactions) {
-    const outstanding = Calc.cardOutstanding(card.id, transactions);
-    return { outstanding, available: Math.max((card.limit || 0) - outstanding, -Infinity) };
+    const committed = Calc.cardCommitted(card.id, transactions);
+    const invoice = Calc.cardInvoiceTotal(card.id, transactions);
+    return { outstanding: committed, committed, invoice, available: (card.limit || 0) - committed };
   },
 
   // Alertas de vencimento de fatura dos cartões de crédito
@@ -176,7 +249,8 @@ const Calc = {
       .map((c) => {
         const due = billDueDateForMonth({ dueDay: c.dueDay }, month);
         const diffDays = Math.round((due - today) / 86400000);
-        const { outstanding } = Calc.cardAvailableLimit(c, transactions);
+        // O alerta fala do que vence agora — parcelas de meses futuros não entram.
+        const outstanding = Calc.cardInvoiceTotal(c.id, transactions, month);
         if (outstanding <= 0) return null;
         let severity = null;
         let message = null;
@@ -242,7 +316,9 @@ const Calc = {
   projectionEndOfMonth(transactions, month) {
     const now = new Date();
     const isCurrent = month === currentMonthKey();
-    const dayOfMonth = isCurrent ? now.getDate() : new Date(month + '-01').getDate();
+    // parseLocalDate e não new Date('YYYY-MM-01'): este último lê como UTC e volta
+    // um dia em fuso negativo, que é justamente o bug que parseLocalDate evita.
+    const dayOfMonth = isCurrent ? now.getDate() : parseLocalDate(month + '-01').getDate();
     const daysInMonth = new Date(
       Number(month.split('-')[0]),
       Number(month.split('-')[1]),
@@ -353,10 +429,28 @@ const Calc = {
   },
 
   // --- Orientação CFP-lite ---
+  // 6 meses é o piso, não o teto. A conta antiga (dependentes + 3) devolvia 4 meses
+  // para quem tem 1 dependente — menos do que para quem não tem nenhum, que é o
+  // oposto da intenção. Agora dependente só acrescenta.
   emergencyFundTarget(monthlyExpenses, dependents) {
-    let months = 6;
-    if (dependents > 0) months = Math.min(dependents + 3, 12);
+    const months = Math.min(6 + Math.max(Number(dependents) || 0, 0), 12);
     return monthlyExpenses * months;
+  },
+
+  // Base mensal de gastos para a meta de reserva.
+  // Usar o mês corrente fazia a meta ser quase zero no dia 1 e ir engordando até
+  // o dia 31 — a reserva ideal mudava todo dia. Aqui só entram meses FECHADOS,
+  // com média dos até 3 últimos, para a meta ficar estável.
+  averageMonthlyExpenses(transactions, monthsBack = 3) {
+    const current = currentMonthKey();
+    const closed = [];
+    for (let i = 1; i <= monthsBack; i++) {
+      const m = shiftMonth(current, -i);
+      const total = Calc.totalByType(transactions, m, 'expense');
+      if (Calc.transactionsForMonth(transactions, m).length > 0) closed.push(total);
+    }
+    if (closed.length === 0) return null;
+    return closed.reduce((a, b) => a + b, 0) / closed.length;
   },
 
   suggestion503020(income) {
@@ -368,11 +462,20 @@ const Calc = {
   },
 
   // Recomendação priorizada (reserva → equilíbrio → investir), baseada no progresso
-  progressRecommendation({ emergencyBalance, emergencyTarget, hasDebt, debtHigh }) {
+  progressRecommendation({ emergencyBalance, emergencyTarget, hasDebt, debtHigh, hasCheapDebt }) {
     if (hasDebt && debtHigh) {
       return {
         priority: 0,
         message: 'Priorize quitar dívidas caras antes de investir — os juros normalmente superam qualquer rentabilidade.',
+      };
+    }
+    // Dívida barata não justifica parar de investir: financiamento e consignado
+    // costumam cobrar menos do que um investimento conservador rende.
+    if (hasCheapDebt && emergencyTarget > 0 && emergencyBalance >= emergencyTarget) {
+      return {
+        priority: 3,
+        message:
+          'Reserva completa e só dívidas baratas (financiamento/consignado). Não há pressa em antecipar essas parcelas: compare a taxa do contrato com o que seu investimento rende antes de decidir.',
       };
     }
     if (emergencyTarget <= 0) {

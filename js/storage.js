@@ -11,6 +11,7 @@ const DB_KEYS = {
   accounts: 'finapp_accounts',
   cards: 'finapp_cards',
   currencies: 'finapp_currencies',
+  recurringIncomes: 'finapp_recurring_incomes',
 };
 
 // Percentuais sugeridos por categoria, baseados em benchmarks de planejamento financeiro
@@ -33,6 +34,7 @@ const DEFAULT_INCOME_CATEGORIES = [
   { name: 'Aluguel recebido', icon: '🏘️' },
   { name: 'Freelance/Extra', icon: '🧾' },
   { name: 'Juros/Rendimento de investimento', icon: '📈' },
+  { name: 'Benefício (VA/VR)', icon: '🍽️' },
   { name: 'Reembolso', icon: '↩️' },
   { name: 'Outras receitas', icon: '➕' },
 ];
@@ -357,6 +359,50 @@ const Storage = {
   },
   deleteCard(id) {
     writeJSON(DB_KEYS.cards, Storage.getCards().filter((c) => c.id !== id));
+  },
+  // Receitas que caem todo mês no mesmo dia (salário, aluguel recebido, pensão).
+  // Mesma mecânica dos vales: o app lança sozinho quando a data já passou.
+  getRecurringIncomes() {
+    return readJSON(DB_KEYS.recurringIncomes, []);
+  },
+  addRecurringIncome(item) {
+    const list = Storage.getRecurringIncomes();
+    const record = { id: uid(), postedMonths: [], active: true, ...item };
+    list.push(record);
+    writeJSON(DB_KEYS.recurringIncomes, list);
+    return record;
+  },
+  updateRecurringIncome(id, patch) {
+    const list = Storage.getRecurringIncomes();
+    const idx = list.findIndex((r) => r.id === id);
+    if (idx >= 0) {
+      list[idx] = { ...list[idx], ...patch };
+      writeJSON(DB_KEYS.recurringIncomes, list);
+    }
+  },
+  deleteRecurringIncome(id) {
+    writeJSON(DB_KEYS.recurringIncomes, Storage.getRecurringIncomes().filter((r) => r.id !== id));
+  },
+  markRecurringIncomePosted(id, month) {
+    const list = Storage.getRecurringIncomes();
+    const item = list.find((r) => r.id === id);
+    if (item) {
+      if (!item.postedMonths) item.postedMonths = [];
+      if (!item.postedMonths.includes(month)) item.postedMonths.push(month);
+      writeJSON(DB_KEYS.recurringIncomes, list);
+    }
+  },
+
+  // Registra que a recarga daquele mês já foi creditada. É o que garante que abrir
+  // o app dez vezes no mesmo dia credite uma vez só.
+  markCardRecharged(id, month) {
+    const list = Storage.getCards();
+    const card = list.find((c) => c.id === id);
+    if (card) {
+      if (!card.rechargedMonths) card.rechargedMonths = [];
+      if (!card.rechargedMonths.includes(month)) card.rechargedMonths.push(month);
+      writeJSON(DB_KEYS.cards, list);
+    }
   },
   adjustCardBalance(id, delta) {
     const list = Storage.getCards();

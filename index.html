@@ -74,6 +74,7 @@
       </div>
       <p class="sub-line" id="dash-comparison">—</p>
       <p class="sub-line" id="dash-available-note" style="margin-top:2px;"></p>
+      <div id="dash-benefit-balance" style="margin-top:4px;"></div>
       <div id="dash-other-currencies" style="margin-top:8px;"></div>
     </div>
 
@@ -215,15 +216,27 @@
       <button class="btn btn-secondary" id="btn-add-currency">+ Adicionar moeda</button>
     </div>
 
+    <div class="section-title">Receitas que caem todo mês</div>
+    <div class="card">
+      <p class="sub-line">Cadastre salário, aluguel recebido ou qualquer receita fixa. O app lança sozinho no dia certo — inclusive recuperando meses em que você não abriu o app.</p>
+      <div id="recurring-list" style="margin-top:8px;"></div>
+      <button class="btn btn-secondary" id="btn-add-recurring" style="margin-top:10px;">+ Nova receita recorrente</button>
+    </div>
+
     <div class="section-title">Backup</div>
     <div class="card">
       <p class="card-title">Exportar ou restaurar seus dados</p>
       <p class="sub-line">Como tudo fica só neste aparelho, exporte um backup de vez em quando e guarde onde quiser (Drive, e-mail para você mesma, pendrive). Se trocar de celular ou limpar o navegador, importe o arquivo para trazer tudo de volta.</p>
+      <div id="backup-reminder" class="alert info" style="display:none;margin-bottom:10px;"></div>
       <button class="btn btn-secondary" id="btn-export-backup">⬇️ Exportar backup</button>
       <label class="btn btn-secondary" style="display:block;text-align:center;cursor:pointer;box-sizing:border-box;">
         ⬆️ Importar backup
         <input type="file" id="input-import-backup" accept="application/json" style="display:none;">
       </label>
+      <div id="undo-import-wrap" style="display:none;margin-top:12px;padding-top:12px;border-top:1px solid var(--border);">
+        <p class="sub-line" id="undo-import-info"></p>
+        <button class="btn btn-secondary" id="btn-undo-import" style="margin-top:6px;">↩️ Desfazer importação</button>
+      </div>
     </div>
 
     <div class="section-title">Zona de risco</div>
@@ -269,8 +282,12 @@
       <input type="number" id="profile-emergency" inputmode="decimal" placeholder="0,00">
 
       <label class="chip" style="display:flex;align-items:center;gap:8px;width:fit-content;margin-top:12px;">
-        <input type="checkbox" id="profile-debt" style="width:auto;"> Tenho dívidas caras (cartão/cheque especial)
+        <input type="checkbox" id="profile-debt" style="width:auto;"> Tenho dívidas caras (cartão, cheque especial, empréstimo pessoal)
       </label>
+      <label class="chip" style="display:flex;align-items:center;gap:8px;width:fit-content;margin-top:8px;">
+        <input type="checkbox" id="profile-debt-cheap" style="width:auto;"> Tenho dívidas baratas (financiamento, consignado)
+      </label>
+      <p class="sub-line" style="margin-top:6px;">A diferença muda a recomendação: dívida cara costuma render mais quitar do que investir; dívida barata, não necessariamente.</p>
 
       <button class="btn btn-primary" id="btn-save-profile">Salvar</button>
     </div>
@@ -548,6 +565,38 @@
   </div>
 
   <!-- ============ MODAL: NOVO CARTÃO ============ -->
+  <div class="modal-overlay" id="modal-recurring">
+    <div class="modal-sheet">
+      <div class="modal-header">
+        <h2 id="rec-modal-title">Nova receita recorrente</h2>
+        <button class="close-btn" data-close="modal-recurring">✕</button>
+      </div>
+
+      <label for="rec-name">Nome</label>
+      <input type="text" id="rec-name" placeholder="Ex: Salário, Aluguel do apê">
+
+      <div class="two-col">
+        <div>
+          <label for="rec-amount">Valor (R$)</label>
+          <input type="number" id="rec-amount" inputmode="decimal" placeholder="0,00">
+        </div>
+        <div>
+          <label for="rec-day">Cai todo dia</label>
+          <input type="number" id="rec-day" min="1" max="31" inputmode="numeric" placeholder="Ex: 5">
+        </div>
+      </div>
+
+      <label for="rec-category">Tipo de receita</label>
+      <select id="rec-category"></select>
+
+      <label for="rec-account">Cai em qual conta?</label>
+      <select id="rec-account"></select>
+
+      <button class="btn btn-primary" id="btn-save-recurring">Salvar</button>
+      <button class="btn btn-danger" id="btn-delete-recurring" style="display:none;">Apagar</button>
+    </div>
+  </div>
+
   <div class="modal-overlay" id="modal-card">
     <div class="modal-sheet">
       <div class="modal-header">
@@ -586,6 +635,18 @@
             <input type="number" id="card-balance" inputmode="decimal" placeholder="0,00">
           </div>
         </div>
+
+        <label style="display:flex;align-items:flex-start;gap:10px;margin-top:14px;cursor:pointer;">
+          <input type="checkbox" id="card-auto-recharge" style="width:20px;height:20px;flex:none;margin-top:2px;">
+          <span>
+            <span style="font-weight:600;">🔄 Recarregar sozinho todo mês</span>
+            <span class="sub-line" style="display:block;margin-top:2px;">
+              No último dia de cada mês o valor acima entra no saldo do cartão e conta como
+              receita do mês, em "Benefício (VA/VR)".
+            </span>
+          </span>
+        </label>
+        <div id="card-recharge-info" class="sub-line" style="margin-top:8px;display:none;"></div>
       </div>
 
       <button class="btn btn-primary" id="btn-save-card">Salvar</button>
