@@ -169,7 +169,8 @@ a:hover { color: var(--accent); }
 
 .summary-grid {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  /* minmax(0, 1fr): sem isso a coluna não encolhe e "R$ 5.000,00" vaza do card no celular */
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 8px;
   margin-top: 14px;
 }
@@ -179,7 +180,8 @@ a:hover { color: var(--accent); }
   padding: 10px 12px;
 }
 .summary-grid .card-title { font-size: 11px; margin-bottom: 2px; }
-.summary-grid .big-number { font-size: 17px; }
+.summary-grid > div { min-width: 0; padding: 10px 8px; }
+.summary-grid .big-number { font-size: clamp(12px, 3.3vw, 17px); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 .section-title {
   font-size: 13px;
@@ -440,3 +442,65 @@ html[data-theme="escuro"] .modal-overlay { background: rgba(6, 5, 21, 0.6); }
 @media (prefers-reduced-motion: reduce) {
   * { animation: none !important; transition: none !important; }
 }
+
+/* ---------- ALERTAS RECOLHIDOS (tela inicial) ---------- */
+.alert-summary {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  text-align: left;
+  font: inherit;
+  font-size: 13.5px;
+  font-weight: 700;
+  padding: 13px 16px;
+  margin-bottom: 12px;
+  border-radius: var(--radius);
+  cursor: pointer;
+}
+.alert-summary.critical { background: rgba(244, 63, 94, 0.10); color: var(--danger); border: 1px solid rgba(244, 63, 94, 0.32); }
+.alert-summary.warning { background: rgba(249, 115, 22, 0.10); color: var(--warning); border: 1px solid rgba(249, 115, 22, 0.34); }
+.alert-summary.info { background: rgba(139, 92, 246, 0.10); color: var(--primary); border: 1px solid rgba(139, 92, 246, 0.32); }
+.alert-summary-cta { font-size: 12.5px; white-space: nowrap; opacity: .85; }
+
+/* ---------- BARRA DE ORÇAMENTO COM PREVISÃO ---------- */
+.budget-progress-row { display: block; }
+.budget-progress-head { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.budget-progress-head .cat-values strong { color: var(--text); }
+.budget-bar { position: relative; height: 10px; }
+.budget-bar .progress-fill { position: absolute; left: 0; top: 0; border-radius: 5px 0 0 5px; }
+.progress-committed {
+  position: absolute;
+  top: 0;
+  height: 100%;
+  opacity: .55;
+  background-image: repeating-linear-gradient(45deg, rgba(255,255,255,.45) 0 4px, transparent 4px 8px);
+}
+.progress-limit {
+  position: absolute;
+  top: -3px;
+  bottom: -3px;
+  width: 2px;
+  margin-left: -1px;
+  background: var(--text);
+  border-radius: 1px;
+}
+.budget-bar { overflow: visible; }
+.budget-verdict { font-weight: 700; }
+.budget-verdict.over { color: var(--danger); }
+.budget-verdict.ok { color: var(--success); }
+
+.realloc-card { border: 1px solid var(--primary); }
+.realloc-row { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 10px 0; font-size: 13.5px; border-bottom: 1px solid var(--divider); }
+.realloc-row:last-of-type { border-bottom: none; }
+
+/* ---------- PLANO DE ECONOMIA ---------- */
+.savings-target { margin-bottom: 4px; }
+.savings-steps { margin: 6px 0 10px 18px; padding: 0; font-size: 13.5px; line-height: 1.5; color: var(--text); }
+.savings-steps li { margin-bottom: 6px; }
+
+/* ---------- GUARDAR DINHEIRO ---------- */
+.save-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 8px; }
+.save-actions .btn { margin: 0; line-height: 1.3; padding: 12px 8px; }
+.save-actions .sub-line { font-weight: 500; font-size: 11.5px; }

@@ -26,6 +26,25 @@ function fmtCurrency(value, currencyCode) {
   return state.hideValues ? '••••••' : Calc.fmtMoney(value, meta);
 }
 
+function accountIcon(account) {
+  const t = ACCOUNT_TYPES.find((x) => x.value === account.type);
+  return t ? t.icon : '🏦';
+}
+
+// <option>s das contas de uma moeda; emptyLabel = primeira opção "sem conta" (ou null para não ter)
+function accountOptionsHTML(currency, selectedId, emptyLabel) {
+  const accounts = Storage.getAccounts().filter((a) => (a.currency || 'BRL') === currency);
+  return (
+    (emptyLabel ? `<option value="">${emptyLabel}</option>` : '') +
+    accounts
+      .map(
+        (a) =>
+          `<option value="${a.id}" ${a.id === selectedId ? 'selected' : ''}>${accountIcon(a)} ${a.name} (${Calc.fmtMoney(a.balance, Storage.getCurrency(a.currency))})</option>`
+      )
+      .join('')
+  );
+}
+
 // -------- Diálogos no tema do app (substituem alert()/confirm() nativos) --------
 function appAlert(message) {
   return new Promise((resolve) => {
@@ -167,7 +186,7 @@ function renderAccountOptions(selectEl, selectedId) {
     accounts
       .map(
         (a) =>
-          `<option value="${a.id}" ${a.id === selectedId ? 'selected' : ''}>${a.type === 'carteira' ? '👛' : '🏦'} ${a.name} (${Calc.fmtMoney(a.balance, Storage.getCurrency(a.currency))})</option>`
+          `<option value="${a.id}" ${a.id === selectedId ? 'selected' : ''}>${accountIcon(a)} ${a.name} (${Calc.fmtMoney(a.balance, Storage.getCurrency(a.currency))})</option>`
       )
       .join('');
 }
@@ -230,6 +249,9 @@ function reverseTransactionEffects(tx) {
   if (tx.accountId) {
     Storage.adjustAccountBalance(tx.accountId, -signal * tx.amount);
   }
+  if (tx.toAccountId) {
+    Storage.adjustAccountBalance(tx.toAccountId, -tx.amount);
+  }
   if (tx.cardId) {
     const card = Storage.getCards().find((c) => c.id === tx.cardId);
     if (card && card.kind !== 'credito') Storage.adjustCardBalance(tx.cardId, -signal * tx.amount);
@@ -240,6 +262,9 @@ function applyTransactionEffects(tx) {
   const signal = tx.type === 'income' ? 1 : -1;
   if (tx.accountId) {
     Storage.adjustAccountBalance(tx.accountId, signal * tx.amount);
+  }
+  if (tx.toAccountId) {
+    Storage.adjustAccountBalance(tx.toAccountId, tx.amount);
   }
   if (tx.cardId) {
     const card = Storage.getCards().find((c) => c.id === tx.cardId);
@@ -505,6 +530,7 @@ function openInvModal(editId) {
     sel.value = inv.assetClass;
     liqSel.value = inv.liquidity || 'Diária';
     state.invCurrency = inv.currency || 'BRL';
+    state.invAccountId = inv.accountId || '';
     renderInvCurrencyChips();
     setInvMovement(inv.movement);
     deleteBtn.style.display = 'block';
@@ -517,6 +543,9 @@ function openInvModal(editId) {
     document.getElementById('inv-rate').value = '';
     document.getElementById('inv-maturity').value = '';
     state.invCurrency = 'BRL';
+    // Sugere a conta com mais saldo: é de onde quase sempre sai o aporte.
+    const candidates = Storage.getAccounts().filter((a) => (a.currency || 'BRL') === 'BRL' && a.type !== 'cofre');
+    state.invAccountId = candidates.length ? candidates.reduce((a, b) => (Number(b.balance) > Number(a.balance) ? b : a)).id : '';
     renderInvCurrencyChips();
     setInvMovement('aporte');
     deleteBtn.style.display = 'none';
@@ -534,16 +563,39 @@ function renderInvCurrencyChips() {
   document.querySelectorAll('#inv-currency-chips .chip').forEach((chip) => {
     chip.addEventListener('click', () => {
       state.invCurrency = chip.dataset.currency;
+      state.invAccountId = '';
       renderInvCurrencyChips();
     });
   });
+  renderInvAccountSelect();
 }
+
+function renderInvAccountSelect() {
+  const sel = document.getElementById('inv-account');
+  const isResgate = state.invMovement === 'resgate';
+  document.getElementById('inv-account-label').textContent = isResgate ? 'Volta para qual conta?' : 'Sai de qual conta?';
+  sel.innerHTML = accountOptionsHTML(state.invCurrency, state.invAccountId, 'Não mexer no saldo de nenhuma conta');
+  sel.value = state.invAccountId || '';
+  const hint = document.getElementById('inv-account-hint');
+  hint.textContent = sel.value
+    ? isResgate
+      ? 'O valor resgatado entra no saldo dessa conta.'
+      : 'O valor sai do saldo dessa conta e vai para o investimento.'
+    : Storage.getAccounts().length
+    ? 'Use quando o dinheiro já tinha saído antes ou veio de fora do app.'
+    : 'Cadastre suas contas em Ajustes para o aporte descontar do saldo.';
+}
+document.getElementById('inv-account').addEventListener('change', (e) => {
+  state.invAccountId = e.target.value;
+  renderInvAccountSelect();
+});
 
 function setInvMovement(mov) {
   state.invMovement = mov;
   document.querySelectorAll('#modal-inv .type-btn').forEach((b) => {
     b.classList.toggle('selected', b.dataset.movement === mov);
   });
+  renderInvAccountSelect();
 }
 document.querySelectorAll('#modal-inv .type-btn').forEach((btn) => {
   btn.addEventListener('click', () => setInvMovement(btn.dataset.movement));
@@ -566,19 +618,29 @@ document.getElementById('btn-save-inv').addEventListener('click', async () => {
     rate: document.getElementById('inv-rate').value.trim(),
     maturity: document.getElementById('inv-maturity').value || null,
     currency: state.invCurrency,
+    accountId: document.getElementById('inv-account').value || null,
   };
   if (state.editingInvId) {
+    // Desfaz o efeito antigo no saldo antes de aplicar o novo (valor ou conta podem ter mudado)
+    const old = Storage.getInvestments().find((i) => i.id === state.editingInvId);
+    if (old && old.accountId) Storage.adjustAccountBalance(old.accountId, -Calc.investmentAccountDelta(old));
     Storage.updateInvestment(state.editingInvId, patch);
   } else {
     Storage.addInvestment(patch);
   }
+  if (patch.accountId) Storage.adjustAccountBalance(patch.accountId, Calc.investmentAccountDelta(patch));
   closeModal('modal-inv');
   renderAll();
 });
 
 document.getElementById('btn-delete-inv').addEventListener('click', async () => {
   if (!state.editingInvId) return;
-  if (!(await appConfirm('Apagar este registro de investimento?', { danger: true }))) return;
+  const inv = Storage.getInvestments().find((i) => i.id === state.editingInvId);
+  const msg = inv && inv.accountId
+    ? 'Apagar este registro de investimento? O valor volta para o saldo da conta usada.'
+    : 'Apagar este registro de investimento?';
+  if (!(await appConfirm(msg, { danger: true }))) return;
+  if (inv && inv.accountId) Storage.adjustAccountBalance(inv.accountId, -Calc.investmentAccountDelta(inv));
   Storage.deleteInvestment(state.editingInvId);
   closeModal('modal-inv');
   renderAll();
@@ -746,7 +808,7 @@ function openPayBillModal(billId) {
   const brlAccounts = Storage.getAccounts().filter((a) => (a.currency || 'BRL') === 'BRL');
   accSel.innerHTML =
     `<option value="">— nenhuma —</option>` +
-    brlAccounts.map((a) => `<option value="${a.id}">${a.type === 'carteira' ? '👛' : '🏦'} ${a.name} (${Calc.fmtBRL(a.balance)})</option>`).join('');
+    brlAccounts.map((a) => `<option value="${a.id}">${accountIcon(a)} ${a.name} (${Calc.fmtBRL(a.balance)})</option>`).join('');
   openModal('modal-pay-bill');
 }
 
@@ -782,6 +844,8 @@ function payBill(bill, amount, date, accountId) {
       rate: '',
       maturity: bill.invMaturity || null,
       currency: 'BRL',
+      // Guarda a conta para que apagar o aporte devolva o valor ao saldo
+      accountId: accountId || null,
     });
   } else {
     Storage.addTransaction({
@@ -803,7 +867,7 @@ function payBill(bill, amount, date, accountId) {
 
 // ==================== CONTAS/SALDOS ====================
 
-function openAccountModal(editId) {
+function openAccountModal(editId, presetType) {
   state.editingAccountId = editId || null;
   const deleteBtn = document.getElementById('btn-delete-account');
   const currencies = Storage.getCurrencies();
@@ -823,7 +887,7 @@ function openAccountModal(editId) {
   } else {
     document.getElementById('account-modal-title').textContent = 'Nova conta ou carteira';
     document.getElementById('account-name').value = '';
-    document.getElementById('account-type').value = 'banco';
+    document.getElementById('account-type').value = presetType || 'banco';
     document.getElementById('account-balance').value = '';
     currencySel.value = 'BRL';
     deleteBtn.style.display = 'none';
@@ -841,13 +905,18 @@ document.getElementById('btn-save-account').addEventListener('click', async () =
     await appAlert('Dê um nome para a conta/carteira.');
     return;
   }
+  let created = null;
   if (state.editingAccountId) {
     Storage.updateAccount(state.editingAccountId, { name, type, balance, currency });
   } else {
-    Storage.addAccount({ name, type, balance, currency });
+    created = Storage.addAccount({ name, type, balance, currency });
   }
   closeModal('modal-account');
   renderAll();
+  // Quem criou o cofre a partir da transferência volta para ela com o cofre já escolhido
+  const next = state.afterAccountSave;
+  state.afterAccountSave = null;
+  if (next && created) next(created);
 });
 
 document.getElementById('btn-delete-account').addEventListener('click', async () => {
@@ -860,7 +929,9 @@ document.getElementById('btn-delete-account').addEventListener('click', async ()
 
 function renderAccounts() {
   const accounts = Storage.getAccounts();
-  const totalBRL = accounts.filter((a) => (a.currency || 'BRL') === 'BRL').reduce((s, a) => s + Number(a.balance), 0);
+  const brl = accounts.filter((a) => (a.currency || 'BRL') === 'BRL');
+  const totalBRL = brl.reduce((s, a) => s + Number(a.balance), 0);
+  const vaultBRL = brl.filter((a) => a.type === 'cofre').reduce((s, a) => s + Number(a.balance), 0);
   document.getElementById('accounts-total').textContent = maskCurrency(totalBRL);
 
   const byCurrency = {};
@@ -869,9 +940,11 @@ function renderAccounts() {
     if (code === 'BRL') return;
     byCurrency[code] = (byCurrency[code] || 0) + Number(a.balance);
   });
-  document.getElementById('accounts-other-currencies').innerHTML = Object.entries(byCurrency)
-    .map(([code, val]) => `<div class="sub-line">${fmtCurrency(val, code)} em ${code}</div>`)
-    .join('');
+  document.getElementById('accounts-other-currencies').innerHTML =
+    (vaultBRL > 0 ? `<div class="sub-line">🐷 ${maskCurrency(vaultBRL)} disso está guardado em cofres (fora do disponível)</div>` : '') +
+    Object.entries(byCurrency)
+      .map(([code, val]) => `<div class="sub-line">${fmtCurrency(val, code)} em ${code}</div>`)
+      .join('');
 
   const listEl = document.getElementById('accounts-list');
   listEl.innerHTML = accounts.length
@@ -880,7 +953,7 @@ function renderAccounts() {
           (a) => `
       <div class="tx-item" data-edit-account="${a.id}" style="cursor:pointer;">
         <div class="tx-left">
-          <div class="tx-icon">${a.type === 'carteira' ? '👛' : '🏦'}</div>
+          <div class="tx-icon">${accountIcon(a)}</div>
           <div class="tx-desc">${a.name}</div>
         </div>
         <div class="tx-amount income">${fmtCurrency(a.balance, a.currency)}</div>
@@ -893,6 +966,128 @@ function renderAccounts() {
     el.addEventListener('click', () => openAccountModal(el.dataset.editAccount));
   });
 }
+
+// ==================== TRANSFERIR / GUARDAR DINHEIRO ====================
+// Move dinheiro entre contas do próprio usuário (banco → cofre, banco → banco...).
+// Não é gasto nem receita: não entra nos totais do mês nem nos orçamentos.
+// "Para um investimento" leva ao aporte com a conta de origem já escolhida.
+
+const TRANSFER_TO_INVEST = '__invest';
+
+function openTransferModal({ mode = 'transfer', toId = null } = {}) {
+  const accounts = Storage.getAccounts();
+  if (accounts.length === 0) {
+    appAlert('Cadastre primeiro suas contas em Ajustes > Contas bancárias e carteira.');
+    return;
+  }
+  state.transferMode = mode;
+  document.getElementById('transfer-modal-title').textContent = mode === 'guardar' ? 'Guardar dinheiro' : 'Transferir entre contas';
+  document.getElementById('transfer-amount').value = '';
+  document.getElementById('transfer-desc').value = '';
+  document.getElementById('transfer-date').value = todayISO();
+
+  const fromSel = document.getElementById('transfer-from');
+  const nonVault = accounts.filter((a) => a.type !== 'cofre');
+  const defaultFrom = (nonVault.length ? nonVault : accounts).reduce((a, b) => (Number(b.balance) > Number(a.balance) ? b : a));
+  fromSel.innerHTML = accounts
+    .map((a) => `<option value="${a.id}">${accountIcon(a)} ${a.name} (${Calc.fmtMoney(a.balance, Storage.getCurrency(a.currency))})</option>`)
+    .join('');
+  fromSel.value = defaultFrom.id;
+  renderTransferTo(toId);
+  openModal('modal-transfer');
+}
+
+function renderTransferTo(preferredId) {
+  const fromSel = document.getElementById('transfer-from');
+  const from = Storage.getAccounts().find((a) => a.id === fromSel.value);
+  const currency = from ? from.currency || 'BRL' : 'BRL';
+  const targets = Storage.getAccounts().filter((a) => a.id !== fromSel.value && (a.currency || 'BRL') === currency);
+  const toSel = document.getElementById('transfer-to');
+  const current = preferredId || toSel.value;
+  // No modo "guardar", cofres aparecem primeiro
+  const ordered = state.transferMode === 'guardar' ? [...targets].sort((a, b) => (b.type === 'cofre') - (a.type === 'cofre')) : targets;
+  toSel.innerHTML =
+    ordered
+      .map((a) => `<option value="${a.id}">${accountIcon(a)} ${a.name} (${Calc.fmtMoney(a.balance, Storage.getCurrency(a.currency))})</option>`)
+      .join('') + `<option value="${TRANSFER_TO_INVEST}">📈 Um investimento (corretora, Tesouro, CDB…)</option>`;
+  if (current && [...toSel.options].some((o) => o.value === current)) toSel.value = current;
+  updateTransferHint();
+}
+
+function updateTransferHint() {
+  const toVal = document.getElementById('transfer-to').value;
+  const to = Storage.getAccounts().find((a) => a.id === toVal);
+  const hasVault = Storage.getAccounts().some((a) => a.type === 'cofre');
+  const hint = document.getElementById('transfer-hint');
+  if (toVal === TRANSFER_TO_INVEST) hint.textContent = 'Você vai escolher o tipo de investimento e a corretora na próxima tela.';
+  else if (to && to.type === 'cofre') hint.textContent = 'Dinheiro no cofre fica guardado e sai do "Disponível" da tela inicial.';
+  else if (!hasVault) hint.textContent = 'Dica: crie um cofre (caixinha, reserva) para separar o que você está guardando.';
+  else hint.textContent = '';
+  document.getElementById('btn-save-transfer').textContent = toVal === TRANSFER_TO_INVEST ? 'Continuar para o aporte' : 'Transferir';
+}
+
+document.getElementById('transfer-from').addEventListener('change', () => renderTransferTo());
+document.getElementById('transfer-to').addEventListener('change', updateTransferHint);
+document.getElementById('btn-open-transfer').addEventListener('click', () => openTransferModal());
+document.getElementById('btn-save-to-vault').addEventListener('click', () => openTransferModal({ mode: 'guardar' }));
+document.getElementById('btn-save-to-invest').addEventListener('click', () => openInvModal());
+
+document.getElementById('btn-transfer-new-vault').addEventListener('click', () => {
+  closeModal('modal-transfer');
+  const mode = state.transferMode;
+  state.afterAccountSave = (created) => openTransferModal({ mode, toId: created.id });
+  openAccountModal(null, 'cofre');
+});
+
+document.getElementById('btn-save-transfer').addEventListener('click', async () => {
+  const amount = parseFloat(document.getElementById('transfer-amount').value);
+  const fromId = document.getElementById('transfer-from').value;
+  const toId = document.getElementById('transfer-to').value;
+  if (!amount || amount <= 0) {
+    await appAlert('Informe um valor válido.');
+    return;
+  }
+  if (!toId) {
+    await appAlert('Escolha para onde vai o dinheiro. Se não tiver outra conta, crie um cofre.');
+    return;
+  }
+  if (toId === TRANSFER_TO_INVEST) {
+    closeModal('modal-transfer');
+    openInvModal();
+    const from = Storage.getAccounts().find((a) => a.id === fromId);
+    state.invCurrency = from ? from.currency || 'BRL' : 'BRL';
+    state.invAccountId = fromId;
+    renderInvCurrencyChips();
+    document.getElementById('inv-amount').value = amount;
+    return;
+  }
+  const accounts = Storage.getAccounts();
+  const from = accounts.find((a) => a.id === fromId);
+  const to = accounts.find((a) => a.id === toId);
+  if (!from || !to) return;
+  if (Number(from.balance) < amount) {
+    const ok = await appConfirm(
+      `${from.name} tem ${Calc.fmtMoney(from.balance, Storage.getCurrency(from.currency))}. Transferir ${Calc.fmtMoney(amount, Storage.getCurrency(from.currency))} deixa o saldo negativo. Continuar?`
+    );
+    if (!ok) return;
+  }
+  const desc = document.getElementById('transfer-desc').value.trim();
+  Storage.addTransaction({
+    type: 'transfer',
+    amount,
+    date: document.getElementById('transfer-date').value || todayISO(),
+    description: desc || `${from.name} → ${to.name}`,
+    accountId: from.id,
+    toAccountId: to.id,
+    category: null,
+    paymentMethod: null,
+    currency: from.currency || 'BRL',
+  });
+  Storage.adjustAccountBalance(from.id, -amount);
+  Storage.adjustAccountBalance(to.id, amount);
+  closeModal('modal-transfer');
+  renderAll();
+});
 
 // ==================== CARTÕES (crédito, alimentação, refeição) ====================
 
@@ -1277,7 +1472,7 @@ function openPayCardModal(cardId) {
   const accSel = document.getElementById('pay-card-account');
   const brlAccounts = Storage.getAccounts().filter((a) => (a.currency || 'BRL') === 'BRL');
   accSel.innerHTML = brlAccounts.length
-    ? brlAccounts.map((a) => `<option value="${a.id}">${a.type === 'carteira' ? '👛' : '🏦'} ${a.name} (${Calc.fmtBRL(a.balance)})</option>`).join('')
+    ? brlAccounts.map((a) => `<option value="${a.id}">${accountIcon(a)} ${a.name} (${Calc.fmtBRL(a.balance)})</option>`).join('')
     : `<option value="">Nenhuma conta cadastrada — adicione em Mais</option>`;
   openModal('modal-pay-card');
 }
@@ -1634,7 +1829,7 @@ document.getElementById('btn-calc-simulate').addEventListener('click', async () 
   const month = Calc.currentMonthKey();
   const transactions = Storage.getTransactions();
   const budgets = Storage.getBudgetsForMonth(month);
-  const budgetStatuses = Calc.budgetStatus(budgets, transactions, month);
+  const budgetStatuses = Calc.budgetStatus(budgets, transactions, month, Storage.getBills());
   const budgetStatus = budgetStatuses.find((b) => b.category === state.simCategory);
 
   const result = Calc.canSpend({ amount, installments, budgetStatus });
@@ -1774,6 +1969,129 @@ document.getElementById('btn-dismiss-onboarding').addEventListener('click', () =
   document.getElementById('onboarding-card').style.display = 'none';
 });
 
+function openAlertsModal() {
+  const alerts = state.dashAlerts || [];
+  const listEl = document.getElementById('alerts-list');
+  listEl.innerHTML = alerts.length
+    ? alerts
+        .map((a) => {
+          const payBtn = a.billId
+            ? `<button class="chip" data-dash-pay-bill="${a.billId}" style="margin-top:8px;">💰 Marcar como paga</button>`
+            : a.cardId
+            ? `<button class="chip" data-dash-pay-card="${a.cardId}" style="margin-top:8px;">💰 Marcar fatura como paga</button>`
+            : '';
+          return `<div class="alert ${a.severity}"><div>${a.message}</div>${payBtn}</div>`;
+        })
+        .join('')
+    : `<div class="empty-state">Nenhum alerta agora. 🎉</div>`;
+  listEl.querySelectorAll('[data-dash-pay-bill]').forEach((el) => {
+    el.addEventListener('click', () => {
+      closeModal('modal-alerts');
+      openPayBillModal(el.dataset.dashPayBill);
+    });
+  });
+  listEl.querySelectorAll('[data-dash-pay-card]').forEach((el) => {
+    el.addEventListener('click', () => {
+      closeModal('modal-alerts');
+      openPayCardModal(el.dataset.dashPayCard);
+    });
+  });
+  openModal('modal-alerts');
+}
+
+// Barra de orçamento que mostra o estouro inteiro: a escala vai até o maior entre
+// limite e previsto, então 150% aparece como 150% (e não travado em 100%), com
+// uma marca onde fica o limite. A parte listrada são contas fixas que ainda vão vencer.
+function budgetProgressHTML(statuses) {
+  return statuses
+    .map((b) => {
+      const scale = Math.max(b.limitAmount, b.projected, 0.01);
+      const spentW = (b.spent / scale) * 100;
+      const committedW = (b.committed / scale) * 100;
+      const limitPos = (b.limitAmount / scale) * 100;
+      const over = b.projected > b.limitAmount;
+      const statusClass = b.status === 'OK' ? 'status-ok' : b.status === 'AVISO' ? 'status-aviso' : 'status-ultrapassado';
+      const projClass = b.projectedStatus === 'ULTRAPASSADO' ? 'status-ultrapassado' : b.projectedStatus === 'AVISO' ? 'status-aviso' : 'status-ok';
+      const diff = Math.abs(b.limitAmount - b.projected);
+      const diffPct = b.limitAmount > 0 ? Math.abs(b.projectedPercent - 100) : 0;
+      const verdict = over
+        ? `<span class="budget-verdict over">${b.committed > 0 && b.spent <= b.limitAmount ? 'Vai estourar' : 'Estourou'} ${maskCurrency(diff)} (${diffPct.toFixed(0)}% acima)</span>`
+        : `<span class="budget-verdict ok">Restam ${maskCurrency(diff)} (${diffPct.toFixed(0)}% do limite)</span>`;
+      const committedLine =
+        b.committed > 0
+          ? `<div class="sub-line">+ ${maskCurrency(b.committed)} em contas a vencer → previsão ${maskCurrency(b.projected)} (${b.projectedPercent.toFixed(0)}%)</div>`
+          : '';
+      return `
+      <div class="cat-row budget-progress-row">
+        <div class="budget-progress-head">
+          <div class="cat-name">${catIcon(b.category)} ${b.category}</div>
+          <div class="cat-values"><strong>${maskCurrency(b.spent)}</strong> de ${maskCurrency(b.limitAmount)} · ${b.percent.toFixed(0)}%</div>
+        </div>
+        <div class="progress-bar budget-bar" role="img" aria-label="${b.category}: ${b.percent.toFixed(0)}% gasto, previsão ${b.projectedPercent.toFixed(0)}%">
+          <div class="progress-fill ${statusClass}" style="width:${spentW}%"></div>
+          ${committedW > 0 ? `<div class="progress-committed ${projClass}" style="left:${spentW}%;width:${committedW}%"></div>` : ''}
+          ${over ? `<div class="progress-limit" style="left:${limitPos}%"></div>` : ''}
+        </div>
+        ${committedLine}
+        <div class="sub-line">${verdict}</div>
+      </div>`;
+    })
+    .join('');
+}
+
+// Monta as entradas do plano de economia a partir do que está salvo
+function buildSavingsPlan() {
+  const profile = Storage.getProfile();
+  const recurring = Storage.getRecurringIncomes();
+  const recurringTotal = recurring.filter((r) => r.active !== false && (r.currency || 'BRL') === 'BRL').reduce((s, r) => s + Number(r.amount || 0), 0);
+  const income = profile.incomeNet > 0 ? profile.incomeNet : recurringTotal;
+  if (!(income > 0)) return null;
+
+  const transactions = Storage.getTransactions();
+  const bills = Storage.getBills().filter((b) => b.active !== false);
+  const fixedBills = bills.filter((b) => !b.isInvestment).reduce((s, b) => s + Number(b.amount || 0), 0);
+  const investmentBills = bills.filter((b) => b.isInvestment).reduce((s, b) => s + Number(b.amount || 0), 0);
+  const month = Calc.currentMonthKey();
+  const creditIds = new Set(Storage.getCards().filter((c) => c.kind === 'credito').map((c) => c.id));
+  const installments = transactions
+    .filter((t) => t.type === 'expense' && creditIds.has(t.cardId) && t.installmentLabel && Calc.monthKey(t.date) === month && (t.currency || 'BRL') === 'BRL')
+    .reduce((s, t) => s + Number(t.amount), 0);
+
+  // Gasto variável médio por categoria nos últimos 3 meses fechados, sem as contas fixas
+  const variableByCategory = {};
+  let monthsWithData = 0;
+  for (let i = 1; i <= 3; i++) {
+    const m = Calc.shiftMonth(month, -i);
+    const list = Calc.transactionsForMonth(transactions, m).filter((t) => t.type === 'expense' && (t.currency || 'BRL') === 'BRL');
+    if (!list.length) continue;
+    monthsWithData++;
+    list
+      .filter((t) => !(t.description || '').startsWith('Conta: '))
+      .forEach((t) => {
+        variableByCategory[t.category] = (variableByCategory[t.category] || 0) + Number(t.amount);
+      });
+  }
+  if (monthsWithData) Object.keys(variableByCategory).forEach((k) => (variableByCategory[k] /= monthsWithData));
+
+  const recommendedPct = {};
+  Storage.getCategories().forEach((c) => (recommendedPct[c.name] = c.recommendedPct));
+  const avg = Calc.averageMonthlyExpenses(transactions, 3);
+  const emergencyTarget = Calc.emergencyFundTarget(avg !== null ? avg : income * 0.7, profile.dependents);
+  const vaults = Storage.getAccounts().filter((a) => a.type === 'cofre' && (a.currency || 'BRL') === 'BRL').reduce((s, a) => s + Number(a.balance), 0);
+  const reserve = Math.max(Number(profile.emergencyFundBalance || 0), vaults);
+
+  return Calc.savingsPlan({
+    income,
+    fixedBills,
+    investmentBills,
+    installments,
+    avgExpenses: avg,
+    variableByCategory,
+    recommendedPct,
+    emergencyGap: Math.max(emergencyTarget - reserve, 0),
+  });
+}
+
 function renderDashboard() {
   const month = state.viewMonth;
   const isCurrentMonth = month === Calc.currentMonthKey();
@@ -1819,11 +2137,15 @@ function renderDashboard() {
   document.getElementById('dash-total-income').textContent = maskCurrency(totalIncome);
   const availableEl = document.getElementById('dash-available');
   const availableNoteEl = document.getElementById('dash-available-note');
-  const brlAccounts = Storage.getAccounts().filter((a) => (a.currency || 'BRL') === 'BRL');
+  const allBrlAccounts = Storage.getAccounts().filter((a) => (a.currency || 'BRL') === 'BRL');
+  const brlAccounts = allBrlAccounts.filter((a) => a.type !== 'cofre');
+  const vaultTotal = allBrlAccounts.filter((a) => a.type === 'cofre').reduce((sum, a) => sum + Number(a.balance), 0);
   let available;
   if (brlAccounts.length > 0) {
     available = brlAccounts.reduce((sum, a) => sum + Number(a.balance), 0);
-    availableNoteEl.textContent = 'Disponível = saldo somado das suas contas e carteira em R$.';
+    availableNoteEl.textContent =
+      'Disponível = saldo somado das suas contas e carteira em R$.' +
+      (vaultTotal > 0 ? ` 🐷 ${maskCurrency(vaultTotal)} guardados em cofres ficam fora.` : '');
   } else {
     available = totalIncome - totalSpent;
     availableNoteEl.textContent = 'Cadastre suas contas em Mais para ver o saldo real disponível — por enquanto, comparando receitas e gastos só deste mês.';
@@ -1853,7 +2175,7 @@ function renderDashboard() {
 
   // Alertas: orçamento estourando + contas a vencer + faturas de cartão a vencer
   // (vencimentos só fazem sentido olhando o mês real de hoje, não um mês passado/futuro navegado)
-  const budgetStatuses = Calc.budgetStatus(budgets, transactions, month);
+  const budgetStatuses = Calc.budgetStatus(budgets, transactions, month, Storage.getBills());
   const alerts = [...Calc.budgetAlerts(budgetStatuses)];
   if (isCurrentMonth) {
     alerts.unshift(...Calc.billAlerts(Storage.getBills(), month), ...Calc.cardAlerts(Storage.getCards(), transactions));
@@ -1868,46 +2190,43 @@ function renderDashboard() {
       }
     }
   }
+  // Alertas ficam recolhidos num botão só: a lista inteira na tela inicial
+  // empurrava o resumo para baixo e virava ruído.
+  state.dashAlerts = alerts;
   const alertsEl = document.getElementById('dash-alerts');
-  alertsEl.innerHTML = alerts.length
-    ? alerts
-        .map((a) => {
-          const payBtn = a.billId
-            ? `<button class="chip" data-dash-pay-bill="${a.billId}" style="margin-top:8px;">💰 Marcar como paga</button>`
-            : a.cardId
-            ? `<button class="chip" data-dash-pay-card="${a.cardId}" style="margin-top:8px;">💰 Marcar fatura como paga</button>`
-            : '';
-          return `<div class="alert ${a.severity}">${a.message}${payBtn}</div>`;
-        })
-        .join('')
-    : !isCurrentMonth
-    ? `<div class="alert info">Você está vendo ${Calc.monthLabel(month)}. Toque em "Hoje" para voltar ao mês atual.</div>`
+  if (alerts.length) {
+    const critical = alerts.filter((a) => a.severity === 'critical').length;
+    const top = critical ? 'critical' : alerts.some((a) => a.severity === 'warning') ? 'warning' : 'info';
+    const detail = critical ? ` · ${critical} urgente${critical > 1 ? 's' : ''}` : '';
+    alertsEl.innerHTML = `
+      <button class="alert-summary ${top}" id="btn-open-alerts">
+        <span>🔔 ${alerts.length} alerta${alerts.length > 1 ? 's' : ''}${detail}</span>
+        <span class="alert-summary-cta">Ver ›</span>
+      </button>`;
+    document.getElementById('btn-open-alerts').addEventListener('click', openAlertsModal);
+  } else {
+    alertsEl.innerHTML = !isCurrentMonth
+      ? `<div class="alert info">Você está vendo ${Calc.monthLabel(month)}. Toque em "Hoje" para voltar ao mês atual.</div>`
+      : '';
+  }
+
+  // Uma linha só sobre poupança; o plano completo fica em Orçamento
+  const plan = buildSavingsPlan();
+  const savingsLineEl = document.getElementById('dash-savings-line');
+  savingsLineEl.innerHTML = plan
+    ? `<button class="alert-summary info" id="btn-dash-savings">
+        <span>🎯 Meta: guardar ${maskCurrency(plan.target)}/mês (${plan.targetPct}% da renda)</span>
+        <span class="alert-summary-cta">Plano ›</span>
+      </button>`
     : '';
-  alertsEl.querySelectorAll('[data-dash-pay-bill]').forEach((el) => {
-    el.addEventListener('click', () => openPayBillModal(el.dataset.dashPayBill));
-  });
-  alertsEl.querySelectorAll('[data-dash-pay-card]').forEach((el) => {
-    el.addEventListener('click', () => openPayCardModal(el.dataset.dashPayCard));
-  });
+  const savingsBtn = document.getElementById('btn-dash-savings');
+  if (savingsBtn) savingsBtn.addEventListener('click', () => showScreen('budgets'));
 
   // Orçamento por categoria
   const budgetsEl = document.getElementById('dash-budgets');
-  if (budgetStatuses.length === 0) {
-    budgetsEl.innerHTML = `<div class="empty-state">Nenhum orçamento definido. Configure na aba Orçamento.</div>`;
-  } else {
-    budgetsEl.innerHTML = budgetStatuses
-      .map((b) => {
-        const statusClass =
-          b.status === 'OK' ? 'status-ok' : b.status === 'AVISO' ? 'status-aviso' : 'status-ultrapassado';
-        return `
-        <div class="cat-row" style="display:block;">
-          <div class="cat-name">${catIcon(b.category)} ${b.category}</div>
-          <div class="cat-values">${maskCurrency(b.spent)} / ${maskCurrency(b.limitAmount)} (${b.percent.toFixed(0)}%)</div>
-          <div class="progress-bar"><div class="progress-fill ${statusClass}" style="width:${Math.min(b.percent, 100)}%"></div></div>
-        </div>`;
-      })
-      .join('');
-  }
+  budgetsEl.innerHTML = budgetStatuses.length
+    ? budgetProgressHTML(budgetStatuses)
+    : `<div class="empty-state">Nenhum orçamento definido. Configure na aba Orçamento.</div>`;
 
   // Últimas transações
   const txEl = document.getElementById('dash-transactions');
@@ -1969,6 +2288,9 @@ function renderBudgets() {
   } else {
     totalAlertEl.innerHTML = '';
   }
+
+  renderBudgetProgress(month, budgets);
+  renderSavingsPlan();
 
   const wrap = document.getElementById('budget-inputs');
   wrap.innerHTML = categories
@@ -2039,6 +2361,95 @@ function renderBudgets() {
   }
 }
 
+function renderBudgetProgress(month, budgets) {
+  const statuses = Calc.budgetStatus(budgets, Storage.getTransactions(), month, Storage.getBills());
+  document.getElementById('budget-progress').innerHTML = statuses.length
+    ? budgetProgressHTML(statuses)
+    : `<div class="empty-state">Defina limites abaixo para acompanhar quanto já gastou e quanto ainda vai gastar com as contas previstas.</div>`;
+
+  // Remanejar só faz sentido para o mês atual ou futuro: mês fechado não muda mais.
+  const reallocEl = document.getElementById('budget-reallocation');
+  const moves = month >= Calc.currentMonthKey() ? Calc.reallocationSuggestions(statuses) : [];
+  if (!moves.length) {
+    reallocEl.innerHTML = '';
+    return;
+  }
+  reallocEl.innerHTML = `
+    <div class="card realloc-card">
+      <p class="card-title">💡 Sugestão de remanejamento</p>
+      ${moves
+        .map((m, i) =>
+          m.from
+            ? `<div class="realloc-row">
+                <div>Passe <strong>${maskCurrency(m.amount)}</strong> de ${catIcon(m.from)} ${m.from} para ${catIcon(m.to)} ${m.to}</div>
+                <button class="chip" data-realloc="${i}">Aplicar</button>
+              </div>`
+            : `<div class="realloc-row"><div>Ainda faltam <strong>${maskCurrency(m.amount)}</strong> para ${catIcon(m.to)} ${m.to}: nenhuma categoria tem folga. Vale rever o gasto ou aumentar o limite total.</div></div>`
+        )
+        .join('')}
+      <p class="sub-line" style="margin-top:6px;">Considera o que já foi gasto e as contas que ainda vão vencer. Mantém 10% de margem nas categorias que cedem.</p>
+    </div>`;
+  reallocEl.querySelectorAll('[data-realloc]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const m = moves[Number(btn.dataset.realloc)];
+      const current = Storage.getBudgetsForMonth(month);
+      const limitOf = (cat) => (current.find((b) => b.category === cat) || { limitAmount: 0 }).limitAmount;
+      const round2 = (v) => Math.round(v * 100) / 100;
+      Storage.setBudget(m.from, month, round2(limitOf(m.from) - m.amount));
+      Storage.setBudget(m.to, month, round2(limitOf(m.to) + m.amount));
+      renderBudgets();
+      renderDashboard();
+    });
+  });
+}
+
+function renderSavingsPlan() {
+  const el = document.getElementById('savings-plan');
+  const plan = buildSavingsPlan();
+  if (!plan) {
+    el.innerHTML = `<div class="sub-line">Cadastre sua renda líquida em Ajustes &gt; Perfil (ou uma receita recorrente) para ver quanto guardar por mês.</div>`;
+    return;
+  }
+  const steps = [];
+  steps.push(
+    plan.investmentBills > 0
+      ? `Você já tem ${maskCurrency(plan.investmentBills)} em aportes programados. Separe mais <strong>${maskCurrency(plan.toSetAside)}</strong> no dia em que o salário cair.`
+      : `Separe <strong>${maskCurrency(plan.toSetAside)}</strong> no dia em que o salário cair, antes de gastar (use "Guardar" na aba Investir).`
+  );
+  plan.cuts.forEach((c) => {
+    steps.push(`Reduza ${catIcon(c.category)} ${c.category} de ${maskCurrency(c.current)} para <strong>${maskCurrency(c.suggested)}</strong>/mês (−${maskCurrency(c.cut)}).`);
+  });
+  if (plan.uncovered > 0) {
+    steps.push(`Ainda faltam ${maskCurrency(plan.uncovered)}/mês. As contas fixas somam ${plan.committedPct.toFixed(0)}% da renda: vale renegociar alguma delas.`);
+  }
+  if (plan.monthsToReserve > 0) {
+    steps.push(`Guardando a meta todo mês, sua reserva de emergência fica completa em cerca de <strong>${plan.monthsToReserve} ${plan.monthsToReserve === 1 ? 'mês' : 'meses'}</strong>.`);
+  }
+
+  const status =
+    plan.estimatedSavings === null
+      ? `<div class="sub-line">Assim que você fechar um mês com lançamentos, comparo sua sobra real com a meta.</div>`
+      : plan.gap > 0
+      ? `<div class="alert warning" style="margin:10px 0 0;">No seu ritmo atual sobram cerca de ${maskCurrency(plan.estimatedSavings)}/mês, ${maskCurrency(plan.gap)} abaixo da meta.</div>`
+      : `<div class="alert info" style="margin:10px 0 0;">No seu ritmo atual sobram cerca de ${maskCurrency(plan.estimatedSavings)}/mês. Você já bate a meta. 👏</div>`;
+
+  el.innerHTML = `
+    <div class="savings-target">
+      <div>
+        <p class="card-title">Meta mensal (${plan.targetPct}% da renda)</p>
+        <p class="big-number">${maskCurrency(plan.target)}</p>
+      </div>
+    </div>
+    <div class="cat-row"><div class="cat-name">📌 Contas fixas previstas</div><div class="cat-values">${maskCurrency(plan.fixedBills)}</div></div>
+    ${plan.installments > 0 ? `<div class="cat-row"><div class="cat-name">💳 Parcelas de cartão este mês</div><div class="cat-values">${maskCurrency(plan.installments)}</div></div>` : ''}
+    <div class="cat-row"><div class="cat-name">🛒 Livre para o dia a dia</div><div class="cat-values" style="color:${plan.freeForVariable < 0 ? 'var(--danger)' : 'inherit'}">${maskCurrency(plan.freeForVariable)}</div></div>
+    ${plan.variable !== null ? `<div class="cat-row"><div class="cat-name">📊 Seu gasto variável médio</div><div class="cat-values">${maskCurrency(plan.variable)}</div></div>` : ''}
+    ${status}
+    <p class="card-title" style="margin-top:14px;">Plano de economia</p>
+    <ol class="savings-steps">${steps.map((t) => `<li>${t}</li>`).join('')}</ol>
+    <p class="sub-line">Base: renda líquida, contas fixas cadastradas em Contas a pagar e média dos últimos 3 meses fechados.</p>`;
+}
+
 // -------- Render: Investimentos --------
 function renderInvestments() {
   const investments = Storage.getInvestments();
@@ -2054,6 +2465,13 @@ function renderInvestments() {
         .map(([code, val]) => `<div class="sub-line">${Calc.fmtMoney(val, Storage.getCurrency(code))} investido em ${code}</div>`)
         .join('')
     : '';
+
+  const vaults = Storage.getAccounts().filter((a) => a.type === 'cofre');
+  document.getElementById('inv-vaults').innerHTML = vaults
+    .map(
+      (a) => `<div class="cat-row"><div class="cat-name">🐷 ${a.name}</div><div class="cat-values">${fmtCurrency(a.balance, a.currency)}</div></div>`
+    )
+    .join('');
 
   const alerts = Calc.investmentAlerts(investments, profile.riskProfile);
   document.getElementById('inv-alerts').innerHTML = alerts

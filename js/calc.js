@@ -296,20 +296,141 @@ const Calc = {
     return map;
   },
 
-  // Status do orçamento: OK (<80%), AVISO (80-100%), ULTRAPASSADO (>100%)
-  budgetStatus(budgets, transactions, month) {
+  // Contas fixas ainda não pagas que vão cair na categoria no mês. Mês passado
+  // não entra: conta que não foi paga lá é atraso, não previsão. Aporte de
+  // investimento também não, porque não é gasto.
+  committedBillsByCategory(bills, month) {
+    const map = {};
+    if (!bills || month < currentMonthKey()) return map;
+    for (const b of bills) {
+      if (b.active === false || b.isInvestment) continue;
+      if ((b.paidMonths || []).includes(month)) continue;
+      map[b.category] = (map[b.category] || 0) + Number(b.amount || 0);
+    }
+    return map;
+  },
+
+  // Status do orçamento: OK (<80%), AVISO (80-100%), ULTRAPASSADO (>100%).
+  // percent/status olham só o que já foi gasto; projected* somam as contas fixas
+  // que ainda vão vencer no mês ("vou estourar quando pagar a luz?").
+  budgetStatus(budgets, transactions, month, bills = []) {
     const totals = Calc.totalsByCategory(transactions, month);
+    const committedMap = Calc.committedBillsByCategory(bills, month);
+    const statusFor = (pct) => (pct > 100 ? 'ULTRAPASSADO' : pct >= 80 ? 'AVISO' : 'OK');
     return budgets
       .filter((b) => b.month === month)
       .map((b) => {
         const spent = totals[b.category] || 0;
+        const committed = committedMap[b.category] || 0;
+        const projected = spent + committed;
         const percent = b.limitAmount > 0 ? (spent / b.limitAmount) * 100 : 0;
-        let status = 'OK';
-        if (percent > 100) status = 'ULTRAPASSADO';
-        else if (percent >= 80) status = 'AVISO';
-        return { category: b.category, limitAmount: b.limitAmount, spent, percent, status };
+        const projectedPercent = b.limitAmount > 0 ? (projected / b.limitAmount) * 100 : 0;
+        return {
+          category: b.category,
+          limitAmount: b.limitAmount,
+          spent,
+          committed,
+          projected,
+          remaining: b.limitAmount - projected,
+          percent,
+          projectedPercent,
+          status: statusFor(percent),
+          projectedStatus: statusFor(projectedPercent),
+        };
       })
-      .sort((a, b) => b.percent - a.percent);
+      .sort((a, b) => b.projectedPercent - a.projectedPercent);
+  },
+
+  // Sugere tirar limite de categorias com folga para cobrir as que vão estourar.
+  // Sempre a partir do previsto (gasto + contas a vencer), para não sugerir tirar
+  // dinheiro de uma categoria que ainda tem conta para pagar. Não deixa a doadora
+  // com menos de 10% do limite dela de margem — zerar a folga só empurra o problema.
+  reallocationSuggestions(statuses) {
+    const round2 = (v) => Math.round(v * 100) / 100;
+    const donors = statuses
+      .filter((s) => s.limitAmount > 0)
+      .map((s) => ({ category: s.category, slack: s.limitAmount - s.projected - s.limitAmount * 0.1 }))
+      .filter((d) => d.slack >= 1)
+      .sort((a, b) => b.slack - a.slack);
+    const moves = [];
+    const needers = statuses.filter((s) => s.projected > s.limitAmount).sort((a, b) => b.projected - b.limitAmount - (a.projected - a.limitAmount));
+    for (const n of needers) {
+      let need = n.projected - n.limitAmount;
+      for (const d of donors) {
+        if (need <= 0.005) break;
+        if (d.slack < 1) continue;
+        const amount = round2(Math.min(need, d.slack));
+        d.slack -= amount;
+        need -= amount;
+        moves.push({ from: d.category, to: n.category, amount });
+      }
+      if (need > 0.005) moves.push({ from: null, to: n.category, amount: round2(need) });
+    }
+    return moves;
+  },
+
+  // Quanto guardar por mês e de onde tirar. Entradas são números já agregados
+  // (a tela monta a partir do storage), o que deixa a regra testável sozinha.
+  //   income           renda líquida mensal
+  //   fixedBills       contas fixas mensais (sem aportes)
+  //   investmentBills  aportes programados já cadastrados como conta
+  //   installments     parcelas de cartão que caem no mês
+  //   avgExpenses      média de gasto dos meses fechados (null se não há histórico)
+  //   variableByCategory { categoria: média mensal } dos gastos que não são conta fixa
+  //   recommendedPct   { categoria: % da renda sugerido }
+  //   emergencyGap     quanto falta para a reserva de emergência
+  savingsPlan({ income, fixedBills = 0, investmentBills = 0, installments = 0, avgExpenses = null, variableByCategory = {}, recommendedPct = {}, emergencyGap = 0, targetPct = 20 }) {
+    if (!(income > 0)) return null;
+    const round2 = (v) => Math.round(v * 100) / 100;
+    const target = round2((income * targetPct) / 100);
+    const committed = fixedBills + installments;
+    const variable = avgExpenses !== null ? Math.max(avgExpenses - fixedBills, 0) : null;
+    // Aporte programado já é poupança: conta a favor da meta, não contra.
+    const estimatedSavings = variable !== null ? round2(income - committed - variable) : null;
+    const gap = estimatedSavings !== null ? round2(Math.max(target - estimatedSavings, 0)) : null;
+    const freeForVariable = round2(income - committed - target);
+
+    // Cortes: primeiro onde o gasto passa do sugerido para a renda, cortando
+    // o excesso (e não mais do que ele) até cobrir o que falta.
+    const cuts = [];
+    if (gap > 0) {
+      let left = gap;
+      const over = Object.entries(variableByCategory)
+        .map(([category, avg]) => {
+          const pct = recommendedPct[category] != null ? recommendedPct[category] : 5;
+          const ideal = (income * pct) / 100;
+          return { category, avg, excess: avg - ideal };
+        })
+        .filter((c) => c.excess > 1)
+        .sort((a, b) => b.excess - a.excess);
+      for (const c of over) {
+        if (left <= 0.005) break;
+        const cut = round2(Math.min(c.excess, left));
+        left -= cut;
+        cuts.push({ category: c.category, current: round2(c.avg), suggested: round2(c.avg - cut), cut });
+      }
+    }
+    const cutsTotal = round2(cuts.reduce((s, c) => s + c.cut, 0));
+
+    const monthly = Math.max(target - investmentBills, 0);
+    const monthsToReserve = emergencyGap > 0 && target > 0 ? Math.ceil(emergencyGap / target) : 0;
+    return {
+      target,
+      targetPct,
+      committed: round2(committed),
+      fixedBills: round2(fixedBills),
+      installments: round2(installments),
+      investmentBills: round2(investmentBills),
+      toSetAside: round2(monthly),
+      variable: variable !== null ? round2(variable) : null,
+      estimatedSavings,
+      gap,
+      freeForVariable,
+      cuts,
+      uncovered: gap !== null ? round2(Math.max(gap - cutsTotal, 0)) : null,
+      monthsToReserve,
+      committedPct: round2((committed / income) * 100),
+    };
   },
 
   // Projeção de gasto até o fim do mês, baseada no ritmo atual
@@ -514,35 +635,54 @@ const Calc = {
       };
     }
 
-    const remaining = budgetStatus.limitAmount - budgetStatus.spent;
+    // Conta fixa que ainda vai vencer na categoria já está "gasta": sem isso o
+    // app dizia "pode gastar" e a conta de luz estourava o orçamento depois.
+    const committed = budgetStatus.committed || 0;
+    const remaining = budgetStatus.limitAmount - budgetStatus.spent - committed;
     const remainingAfter = remaining - monthlyImpact;
     const parcelaTxt = installments > 1 ? ` (1ª de ${installments} parcelas de ${fmtBRL(monthlyImpact)})` : '';
+    const contasTxt = committed > 0 ? `, já descontando ${fmtBRL(committed)} de contas previstas` : '';
 
     if (remainingAfter >= 0) {
       return {
         canSpend: true,
         monthlyImpact,
         remainingAfter,
-        message: `Pode gastar${parcelaTxt}. Depois desse gasto sobram ${fmtBRL(remainingAfter)} no orçamento de ${budgetStatus.category} este mês.`,
+        message: `Pode gastar${parcelaTxt}. Depois desse gasto sobram ${fmtBRL(remainingAfter)} no orçamento de ${budgetStatus.category} este mês${contasTxt}.`,
       };
     }
     return {
       canSpend: false,
       monthlyImpact,
       remainingAfter,
-      message: `Vai estourar o orçamento de ${budgetStatus.category}${parcelaTxt} em ${fmtBRL(Math.abs(remainingAfter))}. Hoje restam ${fmtBRL(Math.max(remaining, 0))} nessa categoria.`,
+      message: `Vai estourar o orçamento de ${budgetStatus.category}${parcelaTxt} em ${fmtBRL(Math.abs(remainingAfter))}. Hoje restam ${fmtBRL(Math.max(remaining, 0))} nessa categoria${contasTxt}.`,
     };
   },
 
   budgetAlerts(budgetStatuses) {
     return budgetStatuses
-      .filter((b) => b.status !== 'OK')
-      .map((b) => ({
-        severity: b.status === 'ULTRAPASSADO' ? 'critical' : 'warning',
-        message:
-          b.status === 'ULTRAPASSADO'
-            ? `Você ultrapassou o orçamento de ${b.category} em ${fmtBRL(b.spent - b.limitAmount)}.`
-            : `${b.category} está em ${b.percent.toFixed(0)}% do orçamento.`,
-      }));
+      .filter((b) => b.status !== 'OK' || (b.projectedStatus && b.projectedStatus === 'ULTRAPASSADO'))
+      .map((b) => {
+        if (b.status === 'ULTRAPASSADO') {
+          return {
+            severity: 'critical',
+            message: `Você ultrapassou o orçamento de ${b.category} em ${fmtBRL(b.spent - b.limitAmount)} (${(b.percent - 100).toFixed(0)}% acima).`,
+          };
+        }
+        if (b.projectedStatus === 'ULTRAPASSADO') {
+          return {
+            severity: 'warning',
+            message: `${b.category} vai estourar em ${fmtBRL(b.projected - b.limitAmount)} quando as contas previstas (${fmtBRL(b.committed)}) forem pagas.`,
+          };
+        }
+        return { severity: 'warning', message: `${b.category} está em ${b.percent.toFixed(0)}% do orçamento.` };
+      });
+  },
+
+  // Efeito de um aporte/resgate no saldo da conta de origem/destino:
+  // aporte tira dinheiro da conta, resgate devolve.
+  investmentAccountDelta(inv) {
+    if (!inv || !inv.accountId) return 0;
+    return (inv.movement === 'resgate' ? 1 : -1) * Number(inv.amount || 0);
   },
 };

@@ -139,6 +139,86 @@ grupo('Recomendação', () => {
   teste('dívida barata não bloqueia investir', 3, r({emergencyBalance:10000, emergencyTarget:10000, hasDebt:false, hasCheapDebt:true}));
 });
 
+// ------------------------------------------- orçamento com contas previstas
+grupo('Orçamento com contas previstas', () => {
+  const mes = Calc.currentMonthKey();
+  const budgets = [
+    { category:'Moradia', month:mes, limitAmount:1000 },
+    { category:'Lazer', month:mes, limitAmount:500 },
+  ];
+  const txs = [
+    { type:'expense', category:'Moradia', amount:600, date: mes+'-05', currency:'BRL' },
+    { type:'expense', category:'Lazer', amount:100, date: mes+'-06', currency:'BRL' },
+  ];
+  const bills = [
+    { name:'Luz', category:'Moradia', amount:300, dueDay:20, paidMonths:[], active:true },
+    { name:'Condomínio', category:'Moradia', amount:250, dueDay:10, paidMonths:[mes], active:true },
+    { name:'Previdência', category:'Moradia', amount:999, dueDay:10, paidMonths:[], active:true, isInvestment:true },
+    { name:'Antiga', category:'Moradia', amount:999, dueDay:10, paidMonths:[], active:false },
+  ];
+  const st = Calc.budgetStatus(budgets, txs, mes, bills);
+  const moradia = st.find((s) => s.category === 'Moradia');
+  teste('conta paga, aporte e conta inativa não entram no previsto', 300, moradia.committed);
+  teste('previsto = gasto + contas a vencer', 900, moradia.projected);
+  teste('percentual previsto', 90, moradia.projectedPercent);
+  teste('sem bills continua funcionando', 0, Calc.budgetStatus(budgets, txs, mes).find((s) => s.category === 'Moradia').committed);
+  teste('mês passado não tem contas previstas', {}, Calc.committedBillsByCategory(bills, Calc.shiftMonth(mes, -1)));
+
+  const estourado = Calc.budgetStatus(budgets, [...txs, { type:'expense', category:'Moradia', amount:300, date: mes+'-07', currency:'BRL' }], mes, bills)
+    .find((s) => s.category === 'Moradia');
+  teste('estouro mostra percentual real (acima de 100)', 120, Math.round(estourado.projectedPercent));
+  teste('restante negativo quando estoura', -200, estourado.remaining);
+
+  const sim = Calc.canSpend({ amount: 200, installments: 1, budgetStatus: moradia });
+  teste('"posso gastar" desconta contas previstas', false, sim.canSpend);
+});
+
+grupo('Remanejamento entre categorias', () => {
+  const st = [
+    { category:'Moradia', limitAmount:1000, projected:1200 },
+    { category:'Lazer', limitAmount:500, projected:100 },
+    { category:'Saúde', limitAmount:200, projected:190 },
+  ];
+  const moves = Calc.reallocationSuggestions(st);
+  teste('tira de quem tem folga para quem estoura', [{ from:'Lazer', to:'Moradia', amount:200 }], moves);
+
+  const pouca = Calc.reallocationSuggestions([
+    { category:'Moradia', limitAmount:1000, projected:1500 },
+    { category:'Lazer', limitAmount:500, projected:100 },
+  ]);
+  teste('mantém 10% de margem na doadora', 350, pouca[0].amount);
+  teste('avisa o que nenhuma categoria cobre', { from:null, to:'Moradia', amount:150 }, pouca[1]);
+  teste('sem estouro não sugere nada', [], Calc.reallocationSuggestions([{ category:'Lazer', limitAmount:500, projected:100 }]));
+});
+
+grupo('Plano de economia', () => {
+  teste('sem renda não há plano', null, Calc.savingsPlan({ income: 0 }));
+  const p = Calc.savingsPlan({
+    income: 5000, fixedBills: 2000, installments: 300, avgExpenses: 4500,
+    variableByCategory: { 'Lazer': 1000, 'Alimentação': 900, 'Saúde': 100 },
+    recommendedPct: { 'Lazer': 12, 'Alimentação': 14 },
+    emergencyGap: 3000,
+  });
+  teste('meta = 20% da renda', 1000, p.target);
+  teste('livre para o dia a dia = renda - fixas - parcelas - meta', 1700, p.freeForVariable);
+  teste('variável = média - contas fixas', 2500, p.variable);
+  teste('sobra estimada', 200, p.estimatedSavings);
+  teste('quanto falta para a meta', 800, p.gap);
+  teste('corta só o excesso sobre o sugerido, maior primeiro', [{ category:'Lazer', current:1000, suggested:600, cut:400 }, { category:'Alimentação', current:900, suggested:700, cut:200 }], p.cuts);
+  teste('diz o que o corte não cobre', 200, p.uncovered);
+  teste('meses para completar a reserva', 3, p.monthsToReserve);
+
+  const comAporte = Calc.savingsPlan({ income: 5000, investmentBills: 400 });
+  teste('aporte programado conta a favor da meta', 600, comAporte.toSetAside);
+  teste('sem histórico não inventa sobra', null, comAporte.estimatedSavings);
+});
+
+grupo('Aporte com conta de origem', () => {
+  teste('aporte tira da conta', -300, Calc.investmentAccountDelta({ accountId:'a', movement:'aporte', amount:300 }));
+  teste('resgate devolve à conta', 300, Calc.investmentAccountDelta({ accountId:'a', movement:'resgate', amount:300 }));
+  teste('sem conta não mexe em saldo', 0, Calc.investmentAccountDelta({ movement:'aporte', amount:300 }));
+});
+
 // ------------------------------------------------------------- render
 const porGrupo = {};
 resultados.forEach((r) => { (porGrupo[r.grupo] = porGrupo[r.grupo] || []).push(r); });

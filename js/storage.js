@@ -44,6 +44,9 @@ const PAYMENT_METHODS = ['Dinheiro', 'Pix', 'Débito', 'Cartão de Crédito', 'C
 const ACCOUNT_TYPES = [
   { value: 'banco', label: 'Conta bancária', icon: '🏦' },
   { value: 'carteira', label: 'Carteira / dinheiro físico', icon: '👛' },
+  // Dinheiro guardado (caixinha, poupança, reserva): não entra no "Disponível",
+  // para a pessoa não achar que pode gastar o que separou.
+  { value: 'cofre', label: 'Cofre / caixinha / reserva', icon: '🐷' },
 ];
 const CARD_KINDS = [
   { value: 'credito', label: 'Cartão de Crédito', icon: '💳', payment: 'Cartão de Crédito' },

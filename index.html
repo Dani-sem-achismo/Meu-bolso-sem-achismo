@@ -92,6 +92,7 @@
     <button class="btn btn-primary" id="btn-open-simulate" style="font-size:16px;">💬 Posso gastar isso?</button>
 
     <div id="dash-alerts"></div>
+    <div id="dash-savings-line"></div>
 
     <div class="section-title">Onde você está gastando mais</div>
     <div class="card" id="dash-chart-categories"></div>
@@ -146,6 +147,15 @@
     </div>
 
     <div id="budget-total-alert"></div>
+
+    <div class="section-title">Como está o mês</div>
+    <div class="card" id="budget-progress"></div>
+    <div id="budget-reallocation"></div>
+
+    <div class="section-title">Quanto guardar por mês</div>
+    <div class="card" id="savings-plan"></div>
+
+    <div class="section-title">Limites por categoria</div>
     <div class="card">
       <p class="card-title">Defina o limite mensal por categoria</p>
       <div id="budget-inputs"></div>
@@ -162,6 +172,15 @@
       <p class="card-title">Patrimônio investido</p>
       <p class="big-number" id="inv-total">R$ 0,00</p>
       <div id="inv-other-currencies" style="margin-top:8px;"></div>
+    </div>
+    <div class="section-title">Guardar dinheiro</div>
+    <div class="card">
+      <p class="sub-line" style="margin-bottom:4px;">Tire da sua conta e mande direto para onde o dinheiro vai ficar.</p>
+      <div class="save-actions">
+        <button class="btn btn-secondary" id="btn-save-to-invest">📈 Investir<br><span class="sub-line">corretora, Tesouro, CDB…</span></button>
+        <button class="btn btn-secondary" id="btn-save-to-vault">🐷 Guardar<br><span class="sub-line">cofre, caixinha, outra conta</span></button>
+      </div>
+      <div id="inv-vaults" style="margin-top:6px;"></div>
     </div>
     <div id="inv-alerts"></div>
     <div class="section-title">Alocação por classe (R$)</div>
@@ -210,7 +229,8 @@
       <div id="accounts-other-currencies" style="margin-top:8px;"></div>
     </div>
     <div class="card" id="accounts-list"></div>
-    <button class="btn btn-secondary" id="btn-add-account">+ Adicionar conta ou carteira</button>
+    <button class="btn btn-secondary" id="btn-add-account">+ Adicionar conta, carteira ou cofre</button>
+    <button class="btn btn-secondary" id="btn-open-transfer">⇄ Transferir entre contas</button>
 
     <div class="section-title">Cartões</div>
     <div id="cards-alerts"></div>
@@ -441,6 +461,10 @@
         <div class="chip-list" id="inv-currency-chips"></div>
       </div>
 
+      <label for="inv-account" id="inv-account-label">Sai de qual conta?</label>
+      <select id="inv-account"></select>
+      <p class="sub-line" id="inv-account-hint" style="margin-top:4px;"></p>
+
       <label for="inv-class">Classe de ativo</label>
       <select id="inv-class"></select>
 
@@ -571,6 +595,7 @@
       <select id="account-type">
         <option value="banco">Conta bancária</option>
         <option value="carteira">Carteira / dinheiro físico</option>
+        <option value="cofre">Cofre / caixinha / reserva (fora do disponível)</option>
       </select>
 
       <div id="account-currency-wrap" style="display:none;">
@@ -959,6 +984,48 @@
 
       <button class="btn btn-primary" id="btn-install-done">Entendi, já vou fixar</button>
       <button class="btn btn-secondary" id="btn-install-later">Fazer isso depois</button>
+    </div>
+  </div>
+
+  <!-- ============ MODAL: ALERTAS ============ -->
+  <div class="modal-overlay" id="modal-alerts">
+    <div class="modal-sheet">
+      <div class="modal-header">
+        <h2>Alertas</h2>
+        <button class="close-btn" data-close="modal-alerts">✕</button>
+      </div>
+      <div id="alerts-list"></div>
+    </div>
+  </div>
+
+  <!-- ============ MODAL: TRANSFERIR / GUARDAR ============ -->
+  <div class="modal-overlay" id="modal-transfer">
+    <div class="modal-sheet">
+      <div class="modal-header">
+        <h2 id="transfer-modal-title">Transferir entre contas</h2>
+        <button class="close-btn" data-close="modal-transfer">✕</button>
+      </div>
+
+      <div class="amount-field">
+        <label for="transfer-amount">Valor (R$)</label>
+        <input type="number" id="transfer-amount" inputmode="decimal" placeholder="0,00">
+      </div>
+
+      <label for="transfer-from">Sai de</label>
+      <select id="transfer-from"></select>
+
+      <label for="transfer-to">Vai para</label>
+      <select id="transfer-to"></select>
+      <p class="sub-line" id="transfer-hint" style="margin-top:4px;"></p>
+
+      <label for="transfer-date">Data</label>
+      <input type="date" id="transfer-date">
+
+      <label for="transfer-desc">Descrição (opcional)</label>
+      <input type="text" id="transfer-desc" placeholder="Ex: reserva de emergência, viagem...">
+
+      <button class="btn btn-primary" id="btn-save-transfer">Transferir</button>
+      <button class="btn btn-secondary" id="btn-transfer-new-vault">🐷 Criar um cofre novo</button>
     </div>
   </div>
 
