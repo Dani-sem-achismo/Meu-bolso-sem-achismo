@@ -179,6 +179,36 @@ const Calc = {
   prevMonthKey,
   daysInMonth,
 
+  // --- Pagamento parcial ---
+  // Quanto já foi pago de uma conta fixa no mês. partialPaid = { 'YYYY-MM': valor }.
+  billPaidSoFar(bill, month) {
+    return Number(((bill && bill.partialPaid) || {})[month] || 0);
+  },
+  // Valor da conta no mês: o informado no 1º pagamento parcial (luz varia) ou o cadastrado.
+  billAmountForMonth(bill, month) {
+    const custom = ((bill && bill.monthAmount) || {})[month];
+    return custom != null ? Number(custom) : Number((bill && bill.amount) || 0);
+  },
+  billRemaining(bill, month) {
+    if ((bill.paidMonths || []).includes(month)) return 0;
+    return Math.max(Math.round((Calc.billAmountForMonth(bill, month) - Calc.billPaidSoFar(bill, month)) * 100) / 100, 0);
+  },
+  cardPaidSoFar(card, month) {
+    return Number(((card && card.partialPaid) || {})[month] || 0);
+  },
+
+  // Resultado de um pagamento dividido em várias formas: quanto está sendo pago agora,
+  // quanto fica faltando e se a conta fecha. Tolerância de meio centavo para arredondamento.
+  // Pagar a mais (multa, juros) também quita.
+  paymentSplitSummary(lines, total, alreadyPaid = 0) {
+    const round2 = (v) => Math.round(v * 100) / 100;
+    const valid = (lines || []).filter((l) => Number(l.amount) > 0);
+    const paying = round2(valid.reduce((sum, l) => sum + Number(l.amount), 0));
+    const remainingBefore = round2(Math.max(total - alreadyPaid, 0));
+    const remainingAfter = round2(Math.max(remainingBefore - paying, 0));
+    return { paying, remainingBefore, remainingAfter, settles: paying > 0 && remainingAfter <= 0.005, lines: valid };
+  },
+
   // Alertas de contas a pagar: vencida, vence hoje, ou vence em até 3 dias
   billAlerts(bills, month) {
     const today = new Date();
@@ -188,17 +218,20 @@ const Calc = {
       .map((b) => {
         const due = billDueDateForMonth(b, month);
         const diffDays = Math.round((due - today) / 86400000);
+        const paidSoFar = Calc.billPaidSoFar(b, month);
+        const owed = Calc.billRemaining(b, month);
+        const valor = paidSoFar > 0 ? `faltam ${fmtBRL(owed)} de ${fmtBRL(Calc.billAmountForMonth(b, month))}` : fmtBRL(owed);
         let severity = null;
         let message = null;
         if (diffDays < 0) {
           severity = 'critical';
-          message = `${b.name} venceu em ${due.toLocaleDateString('pt-BR')} (${fmtBRL(b.amount)}) e ainda não foi paga.`;
+          message = `${b.name} venceu em ${due.toLocaleDateString('pt-BR')} (${valor}) e ainda não foi ${paidSoFar > 0 ? 'quitada' : 'paga'}.`;
         } else if (diffDays === 0) {
           severity = 'critical';
-          message = `${b.name} vence hoje (${fmtBRL(b.amount)}).`;
+          message = `${b.name} vence hoje (${valor}).`;
         } else if (diffDays <= 3) {
           severity = 'warning';
-          message = `${b.name} vence em ${diffDays} dia${diffDays > 1 ? 's' : ''} (${due.toLocaleDateString('pt-BR')}), ${fmtBRL(b.amount)}.`;
+          message = `${b.name} vence em ${diffDays} dia${diffDays > 1 ? 's' : ''} (${due.toLocaleDateString('pt-BR')}), ${valor}.`;
         }
         return severity ? { severity, message, billId: b.id, due, diffDays } : null;
       })
@@ -250,7 +283,7 @@ const Calc = {
         const due = billDueDateForMonth({ dueDay: c.dueDay }, month);
         const diffDays = Math.round((due - today) / 86400000);
         // O alerta fala do que vence agora — parcelas de meses futuros não entram.
-        const outstanding = Calc.cardInvoiceTotal(c.id, transactions, month);
+        const outstanding = Math.round((Calc.cardInvoiceTotal(c.id, transactions, month) - Calc.cardPaidSoFar(c, month)) * 100) / 100;
         if (outstanding <= 0) return null;
         let severity = null;
         let message = null;
@@ -304,8 +337,9 @@ const Calc = {
     if (!bills || month < currentMonthKey()) return map;
     for (const b of bills) {
       if (b.active === false || b.isInvestment) continue;
-      if ((b.paidMonths || []).includes(month)) continue;
-      map[b.category] = (map[b.category] || 0) + Number(b.amount || 0);
+      const owed = Calc.billRemaining(b, month);
+      if (owed <= 0) continue;
+      map[b.category] = (map[b.category] || 0) + owed;
     }
     return map;
   },

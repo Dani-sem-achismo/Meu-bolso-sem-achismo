@@ -13,6 +13,7 @@ const state = {
   hideValues: localStorage.getItem('finapp_hide_values') === '1',
   viewMonth: Calc.currentMonthKey(),
   multiCurrency: localStorage.getItem('finapp_multi_currency') === '1',
+  payLines: { bill: [], card: [] },
 };
 
 // Só mostra seletor de moeda pra quem ativou — por padrão fica tudo em R$, sem ruído
@@ -766,6 +767,8 @@ function renderBills() {
     .map((b) => {
       const paid = b.paidMonths.includes(month);
       const due = Calc.billDueDateForMonth(b, month);
+      const paidSoFar = paid ? 0 : Calc.billPaidSoFar(b, month);
+      const remaining = Calc.billRemaining(b, month);
       return `
       <div class="tx-item">
         <div class="tx-left" data-edit-bill="${b.id}" style="cursor:pointer;">
@@ -773,11 +776,12 @@ function renderBills() {
           <div>
             <div class="tx-desc">${b.name}${b.isInvestment ? ' · aporte' : ''}</div>
             <div class="tx-date">Vence dia ${b.dueDay} (${due.toLocaleDateString('pt-BR')}) ${paid ? '· ✅ paga este mês' : ''}</div>
+            ${paidSoFar > 0 ? `<div class="sub-line partial-note">Pago ${Calc.fmtBRL(paidSoFar)} · falta ${Calc.fmtBRL(remaining)}</div>` : ''}
           </div>
         </div>
         <div style="text-align:right;">
-          <div class="tx-amount expense">${Calc.fmtBRL(b.amount)}</div>
-          ${paid ? '' : `<button class="chip" style="margin-top:4px;" data-pay-bill="${b.id}">Marcar como paga</button>`}
+          <div class="tx-amount expense">${Calc.fmtBRL(paidSoFar > 0 ? remaining : Calc.billAmountForMonth(b, month))}</div>
+          ${paid ? '' : `<button class="chip" style="margin-top:4px;" data-pay-bill="${b.id}">${paidSoFar > 0 ? 'Pagar restante' : 'Pagar'}</button>`}
         </div>
       </div>`;
     })
@@ -795,73 +799,210 @@ function renderBills() {
   });
 }
 
+// -------- Pagamento dividido (várias formas) e parcial --------
+// Cada pagamento é uma lista de linhas { source, amount }. source é
+// 'acc:<id>' (conta/carteira/cofre), 'card:<id>' (cartão de crédito) ou 'none'.
+// Pagar menos do que falta deixa a conta em aberto com o restante.
+
+function paySourceOptions({ allowCards }) {
+  const opts = Storage.getAccounts()
+    .filter((a) => (a.currency || 'BRL') === 'BRL')
+    .map((a) => ({ value: `acc:${a.id}`, label: `${accountIcon(a)} ${a.name} (${Calc.fmtBRL(a.balance)})` }));
+  if (allowCards) {
+    Storage.getCards()
+      .filter((c) => c.kind === 'credito')
+      .forEach((c) => opts.push({ value: `card:${c.id}`, label: `💳 ${c.name} (crédito)` }));
+  }
+  opts.push({ value: 'none', label: 'Não descontar de nenhuma conta' });
+  return opts;
+}
+
+// ctx = { key, linesId, summaryId, options, getTotal(), alreadyPaid, noun }
+function renderPayLines(ctx) {
+  const lines = state.payLines[ctx.key];
+  const wrap = document.getElementById(ctx.linesId);
+  wrap.innerHTML = lines
+    .map(
+      (l, i) => `
+    <div class="pay-line">
+      <select data-line-source="${i}" aria-label="Forma de pagamento ${i + 1}">
+        ${ctx.options.map((o) => `<option value="${o.value}" ${o.value === l.source ? 'selected' : ''}>${o.label}</option>`).join('')}
+      </select>
+      <input type="number" inputmode="decimal" data-line-amount="${i}" value="${l.amount || ''}" placeholder="0,00" aria-label="Valor ${i + 1}">
+      ${lines.length > 1 ? `<button class="close-btn" type="button" data-line-remove="${i}" title="Remover">✕</button>` : ''}
+    </div>`
+    )
+    .join('');
+  wrap.querySelectorAll('[data-line-source]').forEach((el) =>
+    el.addEventListener('change', () => (lines[Number(el.dataset.lineSource)].source = el.value))
+  );
+  wrap.querySelectorAll('[data-line-amount]').forEach((el) =>
+    el.addEventListener('input', () => {
+      lines[Number(el.dataset.lineAmount)].amount = parseFloat(el.value) || 0;
+      renderPaySummary(ctx);
+    })
+  );
+  wrap.querySelectorAll('[data-line-remove]').forEach((el) =>
+    el.addEventListener('click', () => {
+      lines.splice(Number(el.dataset.lineRemove), 1);
+      renderPayLines(ctx);
+    })
+  );
+  renderPaySummary(ctx);
+}
+
+function addPayLine(ctx) {
+  const lines = state.payLines[ctx.key];
+  const sum = Calc.paymentSplitSummary(lines, ctx.getTotal(), ctx.alreadyPaid);
+  const used = new Set(lines.map((l) => l.source));
+  const next = ctx.options.find((o) => !used.has(o.value) && o.value !== 'none') || ctx.options[0];
+  lines.push({ source: next.value, amount: sum.remainingAfter });
+  renderPayLines(ctx);
+}
+
+function renderPaySummary(ctx) {
+  const sum = Calc.paymentSplitSummary(state.payLines[ctx.key], ctx.getTotal(), ctx.alreadyPaid);
+  const el = document.getElementById(ctx.summaryId);
+  let msg;
+  if (sum.paying <= 0) msg = `<span>Informe quanto está pagando.</span>`;
+  else if (sum.settles && sum.paying > sum.remainingBefore + 0.005)
+    msg = `<span class="ok">Pagando ${Calc.fmtBRL(sum.paying)}: quita ${ctx.noun} ✅</span> <span>(${Calc.fmtBRL(sum.paying - sum.remainingBefore)} acima do que faltava, ex: juros ou multa)</span>`;
+  else if (sum.settles) msg = `<span class="ok">Pagando ${Calc.fmtBRL(sum.paying)}: quita ${ctx.noun} ✅</span>`;
+  else
+    msg = `<span>Pagando ${Calc.fmtBRL(sum.paying)} agora.</span> <span class="warn">Ficam faltando ${Calc.fmtBRL(sum.remainingAfter)}</span> <span>— ${ctx.noun} continua em aberto para você pagar o restante depois.</span>`;
+  el.innerHTML = msg;
+  document.getElementById(ctx.saveBtnId).textContent = sum.settles ? 'Confirmar pagamento' : 'Registrar pagamento parcial';
+}
+
+function payBillContext(bill) {
+  const month = Calc.currentMonthKey();
+  return {
+    key: 'bill',
+    linesId: 'pay-bill-lines',
+    summaryId: 'pay-bill-summary',
+    saveBtnId: 'btn-save-pay-bill',
+    options: paySourceOptions({ allowCards: !bill.isInvestment }),
+    getTotal: () => parseFloat(document.getElementById('pay-bill-amount').value) || 0,
+    alreadyPaid: Calc.billPaidSoFar(bill, month),
+    noun: 'a conta',
+  };
+}
+
 function openPayBillModal(billId) {
   const bill = Storage.getBills().find((b) => b.id === billId);
   if (!bill) return;
   const month = Calc.currentMonthKey();
   if (bill.paidMonths.includes(month)) return;
   state.payingBillId = billId;
+  const already = Calc.billPaidSoFar(bill, month);
+  const total = Calc.billAmountForMonth(bill, month);
   document.getElementById('pay-bill-name').textContent = bill.name;
-  document.getElementById('pay-bill-amount').value = bill.amount;
+  document.getElementById('pay-bill-amount').value = total;
   document.getElementById('pay-bill-date').value = todayISO();
-  const accSel = document.getElementById('pay-bill-account');
-  const brlAccounts = Storage.getAccounts().filter((a) => (a.currency || 'BRL') === 'BRL');
-  accSel.innerHTML =
-    `<option value="">— nenhuma —</option>` +
-    brlAccounts.map((a) => `<option value="${a.id}">${accountIcon(a)} ${a.name} (${Calc.fmtBRL(a.balance)})</option>`).join('');
+  const alreadyEl = document.getElementById('pay-bill-already');
+  alreadyEl.style.display = already > 0 ? 'block' : 'none';
+  alreadyEl.innerHTML = already > 0 ? `✅ Já pago este mês: <strong>${Calc.fmtBRL(already)}</strong> · falta ${Calc.fmtBRL(Calc.billRemaining(bill, month))}` : '';
+
+  const ctx = payBillContext(bill);
+  state.payBillCtx = ctx;
+  // Começa com a conta de onde saiu o último pagamento dessa conta fixa, se houver
+  const lastAcc = bill.lastSource && ctx.options.some((o) => o.value === bill.lastSource) ? bill.lastSource : ctx.options[0].value;
+  state.payLines.bill = [{ source: lastAcc, amount: Calc.billRemaining(bill, month) }];
+  renderPayLines(ctx);
   openModal('modal-pay-bill');
 }
 
+document.getElementById('pay-bill-amount').addEventListener('input', () => {
+  const ctx = state.payBillCtx;
+  if (!ctx) return;
+  // Com uma linha só, acompanha o valor da conta; dividido, só atualiza o resumo
+  const lines = state.payLines.bill;
+  if (lines.length === 1) {
+    lines[0].amount = Math.max((ctx.getTotal() || 0) - ctx.alreadyPaid, 0);
+    renderPayLines(ctx);
+  } else renderPaySummary(ctx);
+});
+document.getElementById('btn-pay-bill-add-line').addEventListener('click', () => addPayLine(state.payBillCtx));
+
 document.getElementById('btn-save-pay-bill').addEventListener('click', async () => {
-  const billId = state.payingBillId;
-  const bill = Storage.getBills().find((b) => b.id === billId);
+  const bill = Storage.getBills().find((b) => b.id === state.payingBillId);
   if (!bill) return;
-  const amount = parseFloat(document.getElementById('pay-bill-amount').value);
-  if (!amount || amount <= 0) {
-    await appAlert('Informe um valor válido.');
+  const total = parseFloat(document.getElementById('pay-bill-amount').value);
+  if (!total || total <= 0) {
+    await appAlert('Informe o valor da conta.');
+    return;
+  }
+  const sum = Calc.paymentSplitSummary(state.payLines.bill, total, Calc.billPaidSoFar(bill, Calc.currentMonthKey()));
+  if (sum.paying <= 0) {
+    await appAlert('Informe quanto está pagando.');
     return;
   }
   const date = document.getElementById('pay-bill-date').value || todayISO();
-  const accountId = document.getElementById('pay-bill-account').value || null;
-  payBill(bill, amount, date, accountId);
+  payBillSplit(bill, total, sum.lines, date);
   closeModal('modal-pay-bill');
   renderAll();
 });
 
-function payBill(bill, amount, date, accountId) {
+function payBillSplit(bill, total, lines, date) {
   const month = Calc.currentMonthKey();
   if (bill.paidMonths.includes(month)) return;
-  Storage.markBillPaid(bill.id, month);
-  if (bill.isInvestment) {
-    Storage.addInvestment({
-      amount,
-      assetClass: bill.invClass || 'Renda Fixa',
-      name: bill.name,
-      broker: bill.invBroker || '',
-      date,
-      movement: 'aporte',
-      liquidity: bill.invLiquidity || 'Diária',
-      rate: '',
-      maturity: bill.invMaturity || null,
-      currency: 'BRL',
-      // Guarda a conta para que apagar o aporte devolva o valor ao saldo
-      accountId: accountId || null,
-    });
-  } else {
-    Storage.addTransaction({
-      type: 'expense',
-      amount,
-      category: bill.category,
-      date,
-      description: `Conta: ${bill.name}`,
-      paymentMethod: null,
-      accountId,
-      currency: 'BRL',
-    });
-  }
-  if (accountId) {
-    Storage.adjustAccountBalance(accountId, -amount);
-  }
+  const already = Calc.billPaidSoFar(bill, month);
+  const sum = Calc.paymentSplitSummary(lines, total, already);
+  const partialTag = sum.settles && already === 0 ? '' : sum.settles ? ' (restante)' : ' (parcial)';
+  const cards = Storage.getCards();
+
+  sum.lines.forEach((l) => {
+    const amount = Math.round(Number(l.amount) * 100) / 100;
+    const accountId = l.source.startsWith('acc:') ? l.source.slice(4) : null;
+    const card = l.source.startsWith('card:') ? cards.find((c) => c.id === l.source.slice(5)) : null;
+    if (bill.isInvestment) {
+      Storage.addInvestment({
+        amount,
+        assetClass: bill.invClass || 'Renda Fixa',
+        name: bill.name,
+        broker: bill.invBroker || '',
+        date,
+        movement: 'aporte',
+        liquidity: bill.invLiquidity || 'Diária',
+        rate: '',
+        maturity: bill.invMaturity || null,
+        currency: 'BRL',
+        // Guarda a conta para que apagar o aporte devolva o valor ao saldo
+        accountId,
+      });
+    } else if (card) {
+      // Conta paga no cartão: vira compra no cartão e cai na fatura, não sai do banco agora
+      Storage.addTransaction({
+        type: 'expense',
+        amount,
+        category: bill.category,
+        date,
+        description: `Conta: ${bill.name}${partialTag}`,
+        paymentMethod: 'Cartão de Crédito',
+        cardId: card.id,
+        cardName: card.name,
+        installmentLabel: '1/1',
+        currency: 'BRL',
+      });
+    } else {
+      Storage.addTransaction({
+        type: 'expense',
+        amount,
+        category: bill.category,
+        date,
+        description: `Conta: ${bill.name}${partialTag}`,
+        paymentMethod: null,
+        accountId,
+        currency: 'BRL',
+      });
+    }
+    if (accountId) Storage.adjustAccountBalance(accountId, -amount);
+  });
+
+  const partialPaid = { ...(bill.partialPaid || {}), [month]: Math.round((already + sum.paying) * 100) / 100 };
+  const monthAmount = { ...(bill.monthAmount || {}), [month]: total };
+  Storage.updateBill(bill.id, { partialPaid, monthAmount, lastSource: sum.lines[0].source });
+  if (sum.settles) Storage.markBillPaid(bill.id, month);
   renderAll();
 }
 
@@ -1236,7 +1377,7 @@ function renderCards() {
             <div class="sub-line" style="margin-top:4px;">Disponível: ${maskCurrency(available)}</div>
           </div>
           <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;">
-            ${outstanding > 0 && !paid ? `<button class="chip" data-pay-card="${c.id}">💰 Marcar fatura como paga</button>` : ''}
+            ${outstanding > 0 && !paid ? `<button class="chip" data-pay-card="${c.id}">💰 Pagar fatura</button>` : ''}
             <button class="chip" data-card-initial="${c.id}">📋 Lançar situação atual</button>
           </div>
         </div>`;
@@ -1460,49 +1601,78 @@ function renderRecurringIncomes() {
 // parceladas. Marcar a fatura como paga só tira o dinheiro do banco escolhido —
 // não soma de novo no total de gastos nem nos orçamentos.
 
+// Quanto falta da fatura: a do mês menos o que já foi pago. Sem fatura no mês
+// (ex: quer antecipar), cai no total comprometido.
+function cardAmountDue(card, transactions) {
+  const month = Calc.currentMonthKey();
+  const { committed, invoice } = Calc.cardAvailableLimit(card, transactions);
+  const paid = Calc.cardPaidSoFar(card, month);
+  const base = invoice > 0 ? invoice : committed;
+  return { base, paid, due: Math.max(Math.round((base - paid) * 100) / 100, 0), committed, invoice };
+}
+
 function openPayCardModal(cardId) {
   const card = Storage.getCards().find((c) => c.id === cardId);
   if (!card) return;
-  const { outstanding } = Calc.cardAvailableLimit(card, Storage.getTransactions());
+  const info = cardAmountDue(card, Storage.getTransactions());
   state.payingCardId = cardId;
   document.getElementById('pay-card-name').textContent = card.name;
-  document.getElementById('pay-card-outstanding').textContent = `Fatura em aberto: ${Calc.fmtBRL(outstanding)}`;
-  document.getElementById('pay-card-amount').value = outstanding.toFixed(2);
+  const futuras = info.committed - info.invoice;
+  document.getElementById('pay-card-outstanding').innerHTML =
+    `Fatura deste mês: <strong>${Calc.fmtBRL(info.base)}</strong>` +
+    (info.paid > 0 ? ` · já pago ${Calc.fmtBRL(info.paid)} · falta <strong>${Calc.fmtBRL(info.due)}</strong>` : '') +
+    (futuras > 0 && info.invoice > 0 ? `<br>+ ${Calc.fmtBRL(futuras)} em parcelas dos próximos meses (não entram aqui)` : '');
   document.getElementById('pay-card-date').value = todayISO();
-  const accSel = document.getElementById('pay-card-account');
-  const brlAccounts = Storage.getAccounts().filter((a) => (a.currency || 'BRL') === 'BRL');
-  accSel.innerHTML = brlAccounts.length
-    ? brlAccounts.map((a) => `<option value="${a.id}">${accountIcon(a)} ${a.name} (${Calc.fmtBRL(a.balance)})</option>`).join('')
-    : `<option value="">Nenhuma conta cadastrada — adicione em Mais</option>`;
+
+  const ctx = {
+    key: 'card',
+    linesId: 'pay-card-lines',
+    summaryId: 'pay-card-summary',
+    saveBtnId: 'btn-save-pay-card',
+    options: paySourceOptions({ allowCards: false }),
+    getTotal: () => info.base,
+    alreadyPaid: info.paid,
+    noun: 'a fatura',
+  };
+  state.payCardCtx = ctx;
+  const nonVault = Storage.getAccounts().find((a) => (a.currency || 'BRL') === 'BRL' && a.type !== 'cofre');
+  state.payLines.card = [{ source: nonVault ? `acc:${nonVault.id}` : ctx.options[0].value, amount: info.due }];
+  renderPayLines(ctx);
   openModal('modal-pay-card');
 }
 
+document.getElementById('btn-pay-card-add-line').addEventListener('click', () => addPayLine(state.payCardCtx));
+
 document.getElementById('btn-save-pay-card').addEventListener('click', async () => {
-  const amount = parseFloat(document.getElementById('pay-card-amount').value);
-  if (!amount || amount <= 0) {
-    await appAlert('Informe um valor válido.');
-    return;
-  }
-  const accountId = document.getElementById('pay-card-account').value;
-  if (!accountId) {
-    await appAlert('Escolha de qual conta saiu o pagamento.');
-    return;
-  }
   const card = Storage.getCards().find((c) => c.id === state.payingCardId);
+  if (!card) return;
+  const month = Calc.currentMonthKey();
+  const ctx = state.payCardCtx;
+  const sum = Calc.paymentSplitSummary(state.payLines.card, ctx.getTotal(), ctx.alreadyPaid);
+  if (sum.paying <= 0) {
+    await appAlert('Informe quanto está pagando.');
+    return;
+  }
   const date = document.getElementById('pay-card-date').value || todayISO();
-  Storage.addTransaction({
-    type: 'transfer',
-    amount,
-    date,
-    description: `Pagamento fatura: ${card.name}`,
-    cardId: card.id,
-    accountId,
-    category: null,
-    paymentMethod: null,
-    currency: 'BRL',
+  sum.lines.forEach((l) => {
+    const amount = Math.round(Number(l.amount) * 100) / 100;
+    const accountId = l.source.startsWith('acc:') ? l.source.slice(4) : null;
+    Storage.addTransaction({
+      type: 'transfer',
+      amount,
+      date,
+      description: `Pagamento fatura: ${card.name}${sum.settles && ctx.alreadyPaid === 0 ? '' : sum.settles ? ' (restante)' : ' (parcial)'}`,
+      cardId: card.id,
+      accountId,
+      category: null,
+      paymentMethod: null,
+      currency: 'BRL',
+    });
+    if (accountId) Storage.adjustAccountBalance(accountId, -amount);
   });
-  Storage.adjustAccountBalance(accountId, -amount);
-  Storage.markCardBillPaid(card.id, Calc.currentMonthKey());
+  const partialPaid = { ...(card.partialPaid || {}), [month]: Math.round((ctx.alreadyPaid + sum.paying) * 100) / 100 };
+  Storage.updateCard(card.id, { partialPaid });
+  if (sum.settles) Storage.markCardBillPaid(card.id, month);
   closeModal('modal-pay-card');
   renderAll();
 });
@@ -1976,9 +2146,9 @@ function openAlertsModal() {
     ? alerts
         .map((a) => {
           const payBtn = a.billId
-            ? `<button class="chip" data-dash-pay-bill="${a.billId}" style="margin-top:8px;">💰 Marcar como paga</button>`
+            ? `<button class="chip" data-dash-pay-bill="${a.billId}" style="margin-top:8px;">💰 Pagar</button>`
             : a.cardId
-            ? `<button class="chip" data-dash-pay-card="${a.cardId}" style="margin-top:8px;">💰 Marcar fatura como paga</button>`
+            ? `<button class="chip" data-dash-pay-card="${a.cardId}" style="margin-top:8px;">💰 Pagar fatura</button>`
             : '';
           return `<div class="alert ${a.severity}"><div>${a.message}</div>${payBtn}</div>`;
         })
@@ -2644,6 +2814,8 @@ function renderCardBillsSummary() {
       const { committed, invoice } = Calc.cardAvailableLimit(c, transactions);
       const futuras = committed - invoice;
       const paid = (c.paidMonths || []).includes(month);
+      const paidSoFar = paid ? 0 : Calc.cardPaidSoFar(c, month);
+      const due = Math.max(invoice - paidSoFar, 0);
       return `
       <div class="tx-item">
         <div class="tx-left">
@@ -2651,12 +2823,13 @@ function renderCardBillsSummary() {
           <div>
             <div class="tx-desc">${c.name}</div>
             <div class="tx-date">Vence dia ${c.dueDay}${paid ? ' · ✅ paga este mês' : ''}</div>
+            ${paidSoFar > 0 ? `<div class="sub-line partial-note">Pago ${maskCurrency(paidSoFar)} · falta ${maskCurrency(due)}</div>` : ''}
             ${futuras > 0 ? `<div class="sub-line">+ ${maskCurrency(futuras)} em parcelas de meses seguintes</div>` : ''}
           </div>
         </div>
         <div style="text-align:right;">
-          <div class="tx-amount expense">${maskCurrency(invoice)}</div>
-          ${invoice > 0 && !paid ? `<button class="chip" style="margin-top:4px;" data-pay-card-bill="${c.id}">Marcar como paga</button>` : ''}
+          <div class="tx-amount expense">${maskCurrency(paidSoFar > 0 ? due : invoice)}</div>
+          ${due > 0 && !paid ? `<button class="chip" style="margin-top:4px;" data-pay-card-bill="${c.id}">${paidSoFar > 0 ? 'Pagar restante' : 'Pagar'}</button>` : ''}
         </div>
       </div>`;
     })

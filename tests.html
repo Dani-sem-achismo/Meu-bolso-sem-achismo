@@ -219,6 +219,33 @@ grupo('Aporte com conta de origem', () => {
   teste('sem conta não mexe em saldo', 0, Calc.investmentAccountDelta({ movement:'aporte', amount:300 }));
 });
 
+grupo('Pagamento parcial e dividido', () => {
+  const mes = Calc.currentMonthKey();
+  const luz = { name:'Luz', category:'Moradia', amount:250, dueDay:20, paidMonths:[], active:true };
+  teste('sem pagamento, falta o valor cadastrado', 250, Calc.billRemaining(luz, mes));
+
+  const parcial = { ...luz, partialPaid:{ [mes]:100 }, monthAmount:{ [mes]:230 } };
+  teste('valor do mês ajustado vale sobre o cadastrado', 230, Calc.billAmountForMonth(parcial, mes));
+  teste('falta = valor do mês - já pago', 130, Calc.billRemaining(parcial, mes));
+  teste('conta quitada não deve nada', 0, Calc.billRemaining({ ...parcial, paidMonths:[mes] }, mes));
+  teste('previsão do orçamento usa só o que falta', { Moradia:130 }, Calc.committedBillsByCategory([parcial], mes));
+
+  const dividido = Calc.paymentSplitSummary([{ source:'acc:a', amount:80 }, { source:'card:c', amount:50 }], 230, 100);
+  teste('duas formas que somam o que falta quitam', true, dividido.settles);
+  teste('soma das formas', 130, dividido.paying);
+
+  const meio = Calc.paymentSplitSummary([{ source:'acc:a', amount:100 }], 250, 0);
+  teste('pagar menos deixa em aberto', false, meio.settles);
+  teste('restante depois do parcial', 150, meio.remainingAfter);
+  teste('linha sem valor é ignorada', 1, Calc.paymentSplitSummary([{ source:'acc:a', amount:10 }, { source:'none', amount:0 }], 10).lines.length);
+  teste('pagar a mais (multa) também quita', true, Calc.paymentSplitSummary([{ source:'acc:a', amount:260 }], 250).settles);
+  teste('centavos de arredondamento não travam', true, Calc.paymentSplitSummary([{ amount:33.33 }, { amount:33.33 }, { amount:33.34 }], 100).settles);
+  teste('nada pago não quita', false, Calc.paymentSplitSummary([], 0).settles);
+
+  const alerta = Calc.billAlerts([{ ...parcial, dueDay: new Date().getDate() }], mes)[0];
+  teste('alerta mostra quanto falta', true, !!alerta && alerta.message.includes('faltam'));
+});
+
 // ------------------------------------------------------------- render
 const porGrupo = {};
 resultados.forEach((r) => { (porGrupo[r.grupo] = porGrupo[r.grupo] || []).push(r); });

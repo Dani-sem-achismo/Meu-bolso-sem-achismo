@@ -705,23 +705,22 @@
   <div class="modal-overlay" id="modal-pay-card">
     <div class="modal-sheet">
       <div class="modal-header">
-        <h2>Marcar fatura como paga</h2>
+        <h2>Pagar fatura</h2>
         <button class="close-btn" data-close="modal-pay-card">✕</button>
       </div>
 
       <p class="card-title" id="pay-card-name" style="font-size:16px;font-weight:600;color:var(--text);">—</p>
       <p class="sub-line" id="pay-card-outstanding">—</p>
 
-      <label for="pay-card-account">De qual conta saiu o pagamento?</label>
-      <select id="pay-card-account"></select>
-
-      <label for="pay-card-amount">Valor pago (R$)</label>
-      <input type="number" id="pay-card-amount" inputmode="decimal" placeholder="0,00">
+      <label>Como você pagou?</label>
+      <div id="pay-card-lines" class="pay-lines"></div>
+      <button class="chip" id="btn-pay-card-add-line" type="button">+ Dividir em outra conta</button>
+      <div id="pay-card-summary" class="pay-summary"></div>
 
       <label for="pay-card-date">Data</label>
       <input type="date" id="pay-card-date">
 
-      <p class="sub-line" style="margin-top:8px;">Isso só desconta do saldo da conta escolhida — as compras já foram contadas nas categorias quando você lançou, então isso não soma de novo no seu total de gastos.</p>
+      <p class="sub-line" style="margin-top:8px;">Isso só desconta do saldo das contas escolhidas — as compras já foram contadas nas categorias quando você lançou, então isso não soma de novo no seu total de gastos.</p>
 
       <button class="btn btn-primary" id="btn-save-pay-card">Confirmar pagamento</button>
     </div>
@@ -731,19 +730,21 @@
   <div class="modal-overlay" id="modal-pay-bill">
     <div class="modal-sheet">
       <div class="modal-header">
-        <h2>Marcar conta como paga</h2>
+        <h2>Pagar conta</h2>
         <button class="close-btn" data-close="modal-pay-bill">✕</button>
       </div>
 
       <p class="card-title" id="pay-bill-name" style="font-size:16px;font-weight:600;color:var(--text);">—</p>
 
-      <label for="pay-bill-amount">Valor pago (R$)</label>
+      <label for="pay-bill-amount">Valor da conta este mês (R$)</label>
       <input type="number" id="pay-bill-amount" inputmode="decimal" placeholder="0,00">
-      <p class="sub-line">Contas como luz e água costumam variar de mês pra mês — ajuste aqui se veio diferente do valor cadastrado, sem precisar editar a conta fixa.</p>
+      <p class="sub-line" id="pay-bill-amount-hint">Contas como luz e água costumam variar de mês pra mês — ajuste aqui se veio diferente do valor cadastrado, sem precisar editar a conta fixa.</p>
+      <p class="sub-line" id="pay-bill-already" style="display:none;"></p>
 
-      <label for="pay-bill-account">De qual conta ou carteira saiu o pagamento?</label>
-      <select id="pay-bill-account"></select>
-      <p class="sub-line">Isso desconta o valor do saldo dessa conta. Se preferir não vincular, deixe em "— nenhuma —".</p>
+      <label>Como você está pagando?</label>
+      <div id="pay-bill-lines" class="pay-lines"></div>
+      <button class="chip" id="btn-pay-bill-add-line" type="button">+ Dividir em outra forma de pagamento</button>
+      <div id="pay-bill-summary" class="pay-summary"></div>
 
       <label for="pay-bill-date">Data</label>
       <input type="date" id="pay-bill-date">
